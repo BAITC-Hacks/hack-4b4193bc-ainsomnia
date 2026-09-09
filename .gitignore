@@ -24,3 +24,7 @@ __pycache__/
 .DS_Store
 .claude-flow/
 .claude/settings.local.json
+
+# Сводная таблица модуля 3 — реальные данные, не коммитится
+data/unified.parquet
+data/by_region/
