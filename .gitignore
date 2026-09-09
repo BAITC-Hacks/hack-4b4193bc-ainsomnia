@@ -1,0 +1,26 @@
+# === СЫРЫЕ ДАННЫЕ — СОДЕРЖАТ ПЕРСОНАЛЬНЫЕ ДАННЫЕ, В РЕПОЗИТОРИЙ НЕ ПОПАДАЮТ НИКОГДА ===
+drive-download-*/
+data/
+raw/
+*.csv
+*.xlsx
+*.xls
+
+# === Построчные артефакты — могут содержать ПДн ===
+reports/predictions.csv
+models/
+
+# Агрегированные метрики коммитить можно:
+!reports/metrics.json
+
+# === Окружение ===
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# === Служебное ===
+.DS_Store
+.claude-flow/
+.claude/settings.local.json
