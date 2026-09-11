@@ -333,7 +333,9 @@ def compare_operating_points(y, p_base, p_model, results, main_key):
     print(f"У справочника порог режется по {nb} ступеням — вся подкатегория")
     print("переключается целиком, тонкая настройка рабочей точки невозможна.\n")
 
-    out = {"distinct_values": {"baseline": nb, "model": nm}, "targets": [], "topk": []}
+    out = {"distinct_values": {"baseline": nb, "model": nm,
+                               "model_rounded6": len(np.unique(np.round(p_model, 6)))},
+           "targets": [], "topk": []}
     for metric, target in (("recall", 0.80), ("precision", 0.65)):
         print(f"--- целевой {metric} = {target:.2f}")
         print(f"{'подход':14s} {'порог':>8s} {'помечено':>10s} {'precision':>11s} {'recall':>9s}")
@@ -420,7 +422,10 @@ def write_baseline_report(y, ops, results, main_key):
               f"это {100*dp/t['precision']['справочник']['recall']:.0f}% относительного прироста.\n")
     md.append(f"**Гранулярность.** Справочник выдаёт на тесте всего "
               f"**{ops['distinct_values']['baseline']}** различных значений вероятности "
-              f"против **{ops['distinct_values']['model']}** у модели. Порог режется по "
+              f"против **{ops['distinct_values']['model']}** у модели (по неокруглённым "
+              f"вероятностям; в `reports/predictions.csv` они округлены до 6 знаков, и по "
+              f"файлу различных значений **{ops['distinct_values']['model_rounded6']}**). "
+              f"Порог режется по "
               f"подкатегориям целиком — рабочую точку под ёмкость оператора не подстроить.\n")
 
     md.append("\n## 2. Операционная таблица\n")

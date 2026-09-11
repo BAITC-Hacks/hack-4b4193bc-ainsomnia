@@ -37,6 +37,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import pandas as pd
 
@@ -173,15 +174,18 @@ def _column_report(df: pd.DataFrame, name: str, absent: set[str]) -> None:
     print(f"    source_file: заполнена {int(df['source_file'].notna().sum())}/{n}")
 
 
-def _finish(name: str, n_raw: int, dedup_dropped: int, date_dropped: int, canon: pd.DataFrame, absent: set[str]) -> pd.DataFrame:
+def _finish(name: str, n_raw: int, dedup_dropped: int, date_dropped: int, canon: pd.DataFrame,
+            absent: set[str], shift_dropped: int = 0) -> pd.DataFrame:
     canon = canon.reset_index(drop=True)
     n_out = len(canon)
-    check = n_raw - dedup_dropped - date_dropped
+    check = n_raw - dedup_dropped - date_dropped - shift_dropped
     ok = "OK" if check == n_out else "НЕСХОДИТСЯ"
+    shift = f"; отсеяно по сдвигу полей {shift_dropped}" if shift_dropped else ""
+    shift_c = f" - {shift_dropped}" if shift_dropped else ""
     print(
         f"  [{name}] строк на входе {n_raw}; снято дедупом {dedup_dropped}; "
-        f"отброшено по дате {date_dropped}; строк на выходе {n_out} "
-        f"(контроль: {n_raw} - {dedup_dropped} - {date_dropped} = {check} [{ok}])"
+        f"отброшено по дате {date_dropped}{shift}; строк на выходе {n_out} "
+        f"(контроль: {n_raw} - {dedup_dropped} - {date_dropped}{shift_c} = {check} [{ok}])"
     )
     _column_report(canon, name, absent)
     return canon
@@ -289,6 +293,32 @@ def load_vko() -> pd.DataFrame:
     return _finish(name, n_raw, dedup_dropped, date_dropped, canon, absent)
 
 
+# Сдвиг полей на незакрытых кавычках (CLAUDE.md, 5c). Длинный текст заявителя
+# режется, и содержимое одной колонки уезжает в другую. Отсеиваются строки,
+# где сдвиг виден в канонических колонках category и status — по аналогии
+# с Карагандой, где битые строки отсеиваются по answer_type.
+_ALMATY_STATUS = {"Закрыто", "В работе"}
+_ADDR = re.compile(r"(?:\bдом\b.*\bкв\b)|(?:^|\s)ул\.|(?:^|\s)мкр\b", re.I)
+
+
+def _drop_shifted_almaty(df: pd.DataFrame, parsed: pd.Series, name: str):
+    st = df["status"].fillna("").astype(str).str.strip()
+    ca = df["category"].fillna("").astype(str).str.strip()
+    addr = ca.str.contains(_ADDR)
+    rules = {
+        "status вне справочника статусов": ~st.isin(_ALMATY_STATUS | {""}),
+        "status пустой при category, похожей на адрес": (st == "") & addr,
+        "category совпадает со значением статуса": ca.isin(_ALMATY_STATUS),
+        "адресный фрагмент в category": addr & (ca.str.len() <= 100),
+    }
+    shifted = pd.Series(False, index=df.index)
+    for rule, m in rules.items():
+        print(f"  [{name}] сдвиг полей — {rule}: {int(m.sum())}")
+        shifted |= m
+    print(f"  [{name}] сдвиг полей — всего строк по любому правилу: {int(shifted.sum())}")
+    return df.loc[~shifted], parsed.loc[~shifted], int(shifted.sum())
+
+
 def load_almaty() -> pd.DataFrame:
     name = "Алматы"
     path = os.path.join(BASE_DIR, "Обращения граждан 109 - Алматинская область.csv")
@@ -304,6 +334,7 @@ def load_almaty() -> pd.DataFrame:
     mask = parsed.notna()
     date_dropped = int((~mask).sum())
     df_valid, parsed_valid = df_dedup.loc[mask], parsed.loc[mask]
+    df_valid, parsed_valid, shift_dropped = _drop_shifted_almaty(df_valid, parsed_valid, name)
 
     src = pd.Series(os.path.basename(path), index=df_valid.index)
     canon, absent = _build_canon(
@@ -315,7 +346,8 @@ def load_almaty() -> pd.DataFrame:
         executor_col=None, status_col="status", sla_breach_col=None,
         source_file=src, name=name,
     )
-    return _finish(name, n_raw, dedup_dropped, date_dropped, canon, absent)
+    return _finish(name, n_raw, dedup_dropped, date_dropped, canon, absent,
+                   shift_dropped=shift_dropped)
 
 
 def load_akmola() -> pd.DataFrame:
