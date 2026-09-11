@@ -25,9 +25,9 @@
 Если оставить его в окнах, медиана следующих 28 суток будет занижена.
 
 spike_type (только регионы из SEASONAL_REGIONS):
-  seasonal — в предыдущие годы в те же календарные даты (±season_tol дней)
-             по этому же срезу регион x тема тоже был всплеск;
-  anomaly  — окно прошлого года наблюдалось полностью, всплеска не было;
+  seasonal — в БОЛЬШИНСТВЕ наблюдаемых прошлых лет в те же календарные даты
+             (±season_tol дней) по этому же срезу был всплеск (правило V2);
+  anomaly  — прошлые годы наблюдались, но всплеск был в меньшинстве из них;
   пусто    — сравнивать не с чем: регион вне списка или у всплеска нет
              наблюдаемого прошлогоднего окна (первый год ряда).
 """
@@ -40,7 +40,8 @@ from numpy.lib.stride_tricks import sliding_window_view
 
 DATA = Path("data/unified.parquet")
 DEEP_DIVE_REGIONS = ["Павлодарская область", "Карагандинская область"]
-SEASONAL_REGIONS = ["Павлодарская область", "Карагандинская область"]
+SEASONAL_REGIONS = ["Павлодарская область", "Карагандинская область",
+                    "Восточно-Казахстанская область"]
 
 
 def daily_counts(df, skip_first_month=True):
@@ -129,20 +130,26 @@ def classify_seasonal(ev, det, bounds, regions, tol=10):
             continue
         lo = bounds[reg][0]
         arr = days.get((reg, top), np.array([], dtype="datetime64[ns]"))
-        observed = found = False
+        # Правило V2: всплеск должен быть в БОЛЬШИНСТВЕ наблюдаемых прошлых лет.
+        # Правило «хотя бы в одном году» (V0) нулевой тест не отличал от
+        # случайности: при многолетней истории и частых всплесках совпадение
+        # в окне ±tol почти гарантировано. См. CLAUDE.md, раздел 5f.
+        years_obs = years_hit = 0
         k = 1
         while True:
             a = d - pd.DateOffset(years=k)
             if a + td < lo:
                 break
             w_lo, w_hi = max(a - td, lo), a + td
-            hit = np.any((arr >= np.datetime64(w_lo)) & (arr <= np.datetime64(w_hi)))
-            if hit:
-                found = observed = True
-            elif a - td >= lo:          # окно наблюдалось полностью
-                observed = True
+            hit = bool(np.any((arr >= np.datetime64(w_lo)) & (arr <= np.datetime64(w_hi))))
+            if hit or a - td >= lo:     # год учитывается, если окно наблюдалось или всплеск найден
+                years_obs += 1
+                years_hit += hit
             k += 1
-        out.append("seasonal" if found else ("anomaly" if observed else None))
+        if years_obs == 0:
+            out.append(None)
+        else:
+            out.append("seasonal" if years_hit * 2 > years_obs else "anomaly")
     ev = ev.copy()
     ev["spike_type"] = out
     return ev

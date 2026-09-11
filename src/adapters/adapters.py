@@ -309,7 +309,10 @@ def load_almaty() -> pd.DataFrame:
     canon, absent = _build_canon(
         df_valid, parsed_valid, "Алматинская область",
         category_col="category", district_col=None,
-        executor_col="contractor", status_col="status", sla_breach_col=None,
+        # contractor НЕ переносится: помимо названий организаций в нём лежит
+        # свободный текст заявителей (~55 строк) с ИИН, телефонами и ФИО.
+        # См. CLAUDE.md, раздел 5b.
+        executor_col=None, status_col="status", sla_breach_col=None,
         source_file=src, name=name,
     )
     return _finish(name, n_raw, dedup_dropped, date_dropped, canon, absent)
