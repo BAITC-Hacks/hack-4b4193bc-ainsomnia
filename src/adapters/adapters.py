@@ -41,10 +41,17 @@ import re
 
 import pandas as pd
 
+from src.checks.field_shift import (almaty_shift_rules, karaganda_shift_rules,
+                                     vko_shift_rules)
+
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
 BASE_DIR = os.path.join(PROJECT_ROOT, "drive-download-20260907T161509Z-1-001")
 OUT_DIR = os.path.join(PROJECT_ROOT, "data")
+
+# Ожидаемый итог сводной таблицы (CLAUDE.md, раздел 5c). Меняется вместе с правилами
+# отсева — при правке обновлять здесь и в 5c одновременно.
+EXPECTED_TOTAL = 988_776
 
 CANON_COLUMNS = ["created_at", "region", "category", "district", "executor", "status", "sla_breach"]
 MAX_DATE_FAIL_SHARE = 0.01  # 1% — порог, выше которого адаптер обязан упасть, а не молчать
@@ -217,6 +224,7 @@ def load_karaganda() -> pd.DataFrame:
     mask = parsed.notna()
     date_dropped = int((~mask).sum())
     df_valid, parsed_valid = df_dedup.loc[mask], parsed.loc[mask]
+    df_valid, parsed_valid, shift_dropped = _drop_shifted(df_valid, parsed_valid, name, karaganda_shift_rules)
 
     src = pd.Series(os.path.basename(path), index=df_valid.index)
     canon, absent = _build_canon(
@@ -225,7 +233,8 @@ def load_karaganda() -> pd.DataFrame:
         executor_col="executor_gov_org", status_col=None, sla_breach_col=None,
         source_file=src, name=name,
     )
-    return _finish(name, n_raw, dedup_dropped, date_dropped, canon, absent)
+    return _finish(name, n_raw, dedup_dropped, date_dropped, canon, absent,
+                   shift_dropped=shift_dropped)
 
 
 def _load_kostanay_turkestan(name: str, filename: str, region_label: str) -> pd.DataFrame:
@@ -282,6 +291,7 @@ def load_vko() -> pd.DataFrame:
     mask = parsed.notna()
     date_dropped = int((~mask).sum())
     df_valid, parsed_valid = df_dedup.loc[mask], parsed.loc[mask]
+    df_valid, parsed_valid, shift_dropped = _drop_shifted(df_valid, parsed_valid, name, vko_shift_rules)
 
     src = pd.Series(os.path.basename(path), index=df_valid.index)
     canon, absent = _build_canon(
@@ -290,27 +300,16 @@ def load_vko() -> pd.DataFrame:
         executor_col="contractor", status_col="status", sla_breach_col=None,
         source_file=src, name=name,
     )
-    return _finish(name, n_raw, dedup_dropped, date_dropped, canon, absent)
+    return _finish(name, n_raw, dedup_dropped, date_dropped, canon, absent,
+                   shift_dropped=shift_dropped)
 
 
-# Сдвиг полей на незакрытых кавычках (CLAUDE.md, 5c). Длинный текст заявителя
-# режется, и содержимое одной колонки уезжает в другую. Отсеиваются строки,
-# где сдвиг виден в канонических колонках category и status — по аналогии
-# с Карагандой, где битые строки отсеиваются по answer_type.
-_ALMATY_STATUS = {"Закрыто", "В работе"}
-_ADDR = re.compile(r"(?:\bдом\b.*\bкв\b)|(?:^|\s)ул\.|(?:^|\s)мкр\b", re.I)
-
-
-def _drop_shifted_almaty(df: pd.DataFrame, parsed: pd.Series, name: str):
-    st = df["status"].fillna("").astype(str).str.strip()
-    ca = df["category"].fillna("").astype(str).str.strip()
-    addr = ca.str.contains(_ADDR)
-    rules = {
-        "status вне справочника статусов": ~st.isin(_ALMATY_STATUS | {""}),
-        "status пустой при category, похожей на адрес": (st == "") & addr,
-        "category совпадает со значением статуса": ca.isin(_ALMATY_STATUS),
-        "адресный фрагмент в category": addr & (ca.str.len() <= 100),
-    }
+# Сдвиг полей на незакрытых кавычках (CLAUDE.md, 5c): содержимое одной колонки
+# уезжает в другую. Один дефект — одно обращение: во всех регионах, где он найден,
+# строки со сдвигом отсеиваются в адаптере. Правила — в src/checks/field_shift.py,
+# там же отчёт, который воспроизводит эти счётчики по сырым файлам.
+def _drop_shifted(df: pd.DataFrame, parsed: pd.Series, name: str, rules_fn):
+    rules = rules_fn(df)
     shifted = pd.Series(False, index=df.index)
     for rule, m in rules.items():
         print(f"  [{name}] сдвиг полей — {rule}: {int(m.sum())}")
@@ -334,7 +333,7 @@ def load_almaty() -> pd.DataFrame:
     mask = parsed.notna()
     date_dropped = int((~mask).sum())
     df_valid, parsed_valid = df_dedup.loc[mask], parsed.loc[mask]
-    df_valid, parsed_valid, shift_dropped = _drop_shifted_almaty(df_valid, parsed_valid, name)
+    df_valid, parsed_valid, shift_dropped = _drop_shifted(df_valid, parsed_valid, name, almaty_shift_rules)
 
     src = pd.Series(os.path.basename(path), index=df_valid.index)
     canon, absent = _build_canon(
@@ -505,15 +504,16 @@ def run_all() -> dict[str, pd.DataFrame]:
     print("\n" + "=" * 70)
     print("Контроль сборки против CLAUDE.md, раздел «Контроль»")
     print("=" * 70)
-    print("Ожидаемая сумма ПОСЛЕ дедупа, ДО отбрасывания непарсящихся дат: 990 032")
-    print("Ожидание CLAUDE.md после отбрасывания дат: 990 000 (32 строки Акмолы, Акмола -> 3 474)")
-    print(f"Фактическая сумма после дедупа И отбрасывания дат: {total}")
-    if total != 990000:
+    print("Ожидаемая сумма ПОСЛЕ дедупа, ДО прочих отсевов: 990 032")
+    print(f"Ожидание CLAUDE.md (раздел 5c): {EXPECTED_TOTAL} = 990 032 - 32 (Акмола, "
+          "непарсящаяся дата) - 5 (Караганда, непарсящаяся дата) - 638 (Караганда, сдвиг "
+          "полей) - 578 (Алматы, сдвиг полей) - 3 (ВКО, сдвиг полей)")
+    print(f"Фактическая сумма: {total}")
+    if total != EXPECTED_TOTAL:
         print(
-            f"РАСХОЖДЕНИЕ: фактический итог {total} != ожидаемых 990 000. "
-            f"Разбивка по регионам с отброшенными по дате строками — см. вывод адаптеров выше "
-            f"(Караганда дополнительно теряет 5 строк с нечитаемой датой, это не входило в "
-            f"ожидание CLAUDE.md, которое называло только 32 строки Акмолы)."
+            f"РАСХОЖДЕНИЕ: фактический итог {total} != ожидаемых {EXPECTED_TOTAL}. "
+            f"Разбивка по регионам — см. вывод адаптеров выше: у каждого напечатано, "
+            f"сколько снято дедупом, отброшено по дате и отсеяно по сдвигу полей."
         )
 
     topic_dictionaries(canon)

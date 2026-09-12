@@ -14,7 +14,7 @@
 
 Черновик для ручного разбора, не финальный справочник.
 """
-import csv, sys
+import sys
 from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -153,19 +153,6 @@ def map_topic(value):
                 return topic
     return "прочее"
 
-def karaganda_bad_themes():
-    """22 темы, встречающиеся только в 638 строках со сдвигом полей."""
-    kar = Path("drive-download-20260907T161509Z-1-001/"
-               "Обращения граждан 109 - Карагандинская область.csv")
-    if not kar.exists():
-        return set()
-    csv.field_size_limit(10**9)
-    GOOD = {"Быстрый ответ", "Письменное обращение", ""}
-    rows = list(csv.DictReader(open(kar, encoding="utf-8-sig", newline="")))
-    broken = {r["sub_category"] for r in rows if (r["answer_type"] or "") not in GOOD}
-    clean = {r["sub_category"] for r in rows if (r["answer_type"] or "") in GOOD}
-    return broken - clean
-
 def audit_rules(df):
     """Для каждого правила: сколько тем оно ловит. Плюс поиск тем в «прочем»,
     отличающихся от ключевого слова на окончание или одно слово."""
@@ -215,13 +202,10 @@ def main():
         sys.exit("нет data/unified.parquet — сначала src/adapters/build_unified.py")
     df = pd.read_parquet(src)
 
-    bad = karaganda_bad_themes()
-    mask_bad = (df.region == "Карагандинская область") & df.category.isin(bad)
-    print(f"Караганда: {len(bad)} тем только из строк со сдвигом полей — "
-          f"{int(mask_bad.sum())} строк исключено из разметки\n")
-
+    # Строки Караганды со сдвигом полей (638) отсеиваются в адаптере — см.
+    # src/checks/field_shift.py. Раньше их темы исключались здесь и помечались
+    # system; после отсева в адаптере этот обход не нужен.
     df["appeal_class"] = df.category.map(classify_appeal)
-    df.loc[mask_bad, "appeal_class"] = "system"
     df["topic"] = df.category.map(map_topic)
     df.to_parquet(src, index=False)
     print(f"{src} обновлён: добавлены appeal_class и topic\n")
