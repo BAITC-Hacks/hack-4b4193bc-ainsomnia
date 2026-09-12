@@ -180,8 +180,10 @@ def main():
     parts = ["<meta charset='utf-8'><h1>Вопросы к данным — графики</h1>"]
     for j, (title, fig) in enumerate(figs):
         parts.append(f"<h3>{title}</h3>")
+        # div_id задаётся явно: иначе plotly генерирует случайный, и файл меняется
+        # при каждом прогоне, шумя в git при неизменных данных.
         parts.append(pio.to_html(fig, include_plotlyjs="cdn" if j == 0 else False,
-                                 full_html=False))
+                                 full_html=False, div_id=f"nlq-{j:02d}"))
     OUT_HTML.write_text("\n".join(parts), encoding="utf-8")
 
     print(f"разобрано {ok}/{len(QUESTIONS)} · отказов где надо {refuse_ok}/{len(MUST_REFUSE)}"
