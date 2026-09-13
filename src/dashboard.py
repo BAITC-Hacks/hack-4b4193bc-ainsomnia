@@ -17,7 +17,13 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from src.spikes import (GAP_MIN, SEASONAL_REGIONS, classify_seasonal, daily_counts,
+                        detect, gap_days, with_duration)
+
 DATA = Path("data/unified.parquet")
+CONTEXT_DAYS = 14        # сколько дней показывать до и после события
+NEW_DAYS_DEFAULT = 7     # «требует внимания» — события за столько последних дней
+TYPE_RU = {"seasonal": "сезонный", "anomaly": "аномалия", "без типа": "без типа"}
 CLASS_RU = {"problem": "Городские проблемы", "info": "Справочные",
             "system": "Служебные"}
 CLASS_COLOR = {"Городские проблемы": "#2E7D32", "Справочные": "#F9A825",
@@ -31,6 +37,74 @@ def load_data(path=DATA):
     df["created_at"] = pd.to_datetime(df["created_at"])
     df["месяц"] = df["created_at"].dt.to_period("M").dt.to_timestamp()
     return df
+
+
+# ---------------------------------------------------------------- события
+def load_events(path=DATA):
+    """Дневные ряды и лента всплесков. Параметры детектора — как в src.spikes.
+
+    Возвращает (daily, det, ev): дневные счётчики по срезам, таблицу с флагом
+    всплеска по дням и ленту событий с длительностью и типом. Считается один раз
+    и кладётся в кэш: детектор идёт по всем срезам всех регионов.
+    """
+    full = pd.read_parquet(path, columns=["created_at", "region", "topic", "appeal_class"])
+    full["created_at"] = pd.to_datetime(full["created_at"])
+    problem = full[full.appeal_class == "problem"].copy()
+    daily, bounds = daily_counts(problem)
+    # Пропуски выгрузки ищутся по всем классам — см. gap_days в src/spikes.py
+    det = detect(daily, blocked=gap_days(full, bounds))
+    ev = classify_seasonal(with_duration(det), det, bounds, SEASONAL_REGIONS)
+    # spike_type приходит как None либо NaN — оба значат «сравнивать не с чем»
+    ev["тип"] = [TYPE_RU["без типа"] if (x is None or pd.isna(x)) else TYPE_RU.get(x, x)
+                 for x in ev["spike_type"]]
+    ev["конец"] = ev["дата"] + pd.to_timedelta(ev["дней подряд"] - 1, unit="D")
+    return daily, det, ev
+
+
+def region_last_day(daily):
+    """Последний день данных по каждому региону — точка отсчёта «новизны».
+
+    Отсчитывать от сегодняшней даты нельзя: выгрузка историческая и у регионов
+    заканчивается в разное время (Караганда 2023-12, Павлодар 2026-07). От общей
+    последней даты секция «требует внимания» показывала бы только Павлодар.
+    """
+    return daily.groupby("region")["день"].max()
+
+
+def mark_new(ev, last_day, days):
+    """Пометить события, попавшие в последние `days` дней СВОЕГО региона."""
+    ev = ev.copy()
+    edge = ev["регион"].map(last_day) - pd.Timedelta(days=days - 1)
+    ev["новое"] = ev["конец"] >= edge
+    return ev
+
+
+def fig_event_series(daily, det, region, topic, day, before=CONTEXT_DAYS,
+                     after=CONTEXT_DAYS):
+    """Дневной ряд вокруг события с отмеченными днями всплеска.
+
+    Тот же вид, что в разборе экибастузского эпизода: столбцы по дням, линия
+    медианы окна, дни всплеска выделены цветом."""
+    lo = pd.Timestamp(day) - pd.Timedelta(days=before)
+    hi = pd.Timestamp(day) + pd.Timedelta(days=after)
+    m = det[(det.region == region) & (det.topic == topic)
+            & (det["день"] >= lo) & (det["день"] <= hi)].sort_values("день")
+    if m.empty:
+        return go.Figure().add_annotation(text="нет данных", showarrow=False)
+    colors = ["#C62828" if sp else "#90A4AE" for sp in m["spike"]]
+    fig = go.Figure()
+    fig.add_bar(x=m["день"], y=m["count"], marker_color=colors, name="обращений",
+                hovertemplate="%{x|%d.%m.%Y}<br>%{y} обращений<extra></extra>")
+    fig.add_scatter(x=m["день"], y=m["median_w"], mode="lines", name="медиана окна",
+                    line=dict(color="#1565C0", width=2, dash="dot"),
+                    hovertemplate="%{x|%d.%m.%Y}<br>медиана %{y:.1f}<extra></extra>")
+    fig.add_scatter(x=m["день"], y=m["threshold"], mode="lines", name="порог",
+                    line=dict(color="#EF6C00", width=1),
+                    hovertemplate="%{x|%d.%m.%Y}<br>порог %{y:.1f}<extra></extra>")
+    fig.update_layout(title=f"{region} · {topic} · {pd.Timestamp(day):%d.%m.%Y}",
+                      height=380, margin=dict(t=50, b=40), hovermode="x unified",
+                      legend=dict(orientation="h", y=1.02, yanchor="bottom"))
+    return fig
 
 
 # ---------------------------------------------------------------- блок 2
@@ -93,6 +167,108 @@ def fig_topics(df):
     return fig
 
 
+# ---------------------------------------------------------------- секция событий
+FEED_COLS = ["дата", "регион", "тема", "обращений", "медиана окна", "кратность",
+             "прирост", "дней подряд", "тип"]
+
+
+def feed_view(ev):
+    """Лента в том виде, в каком она показывается и выгружается."""
+    out = ev[FEED_COLS].copy()
+    out["дата"] = out["дата"].dt.date
+    out["медиана окна"] = out["медиана окна"].round(1)
+    out["кратность"] = out["кратность"].round(1)
+    out["прирост"] = out["прирост"].round(1)
+    return out
+
+
+def events_section(st, df):
+    """Лента всплесков с фильтрами, секцией «требует внимания» и разбором события."""
+    st.subheader("События детектора")
+    daily, det, ev_all = st.cache_data(load_events)()
+    last_day = region_last_day(daily)
+
+    with st.expander("Как это считается", expanded=False):
+        st.markdown(
+            f"""Дневные счётчики по срезу «регион × тема», только городские проблемы.
+Скользящая медиана и MAD по окну 28 суток, **окно сдвинуто на `[t−28, t−1]`** —
+день всплеска в него не входит. Всплеск: `обращений > медиана + 4·MAD` и не
+меньше 10 обращений за день.
+
+Детекция **не работает** в двух случаях, и это сделано намеренно: первый
+календарный месяц ряда региона и окно, задетое пропуском выгрузки
+({GAP_MIN}+ дней подряд без обращений по региону). Нет окна — нет детекции.
+
+Тип события: **сезонный** — в большинстве прошлых лет в те же даты ±10 дней
+всплеск уже был; **аномалия** — прошлые годы наблюдались, но всплеск был в
+меньшинстве из них; **без типа** — сравнивать не с чем. Метки разных регионов
+несопоставимы по силе: за ними стоит разное число прошлых лет.""")
+
+    # ---- фильтры
+    f = st.columns([2, 2, 1.2, 1.2])
+    regions = sorted(ev_all["регион"].unique())
+    topics = sorted(ev_all["тема"].unique())
+    sel_reg = f[0].multiselect("Регион", regions, default=regions, key="ev_reg")
+    sel_top = f[1].multiselect("Тема", topics, default=topics, key="ev_top")
+    types = ["аномалия", "сезонный", "без типа"]
+    sel_type = f[2].multiselect("Тип", types, default=types, key="ev_type")
+    min_ratio = f[3].number_input("Кратность от", min_value=1.0, value=1.0, step=0.5,
+                                  key="ev_ratio")
+
+    g = st.columns([3, 1.4, 1.6])
+    dmin, dmax = ev_all["дата"].min().date(), ev_all["дата"].max().date()
+    period = g[0].date_input("Период", (dmin, dmax), min_value=dmin, max_value=dmax,
+                             key="ev_period")
+    order = g[1].radio("Сортировать по", ["приросту", "кратности"], key="ev_order",
+                       horizontal=True)
+    new_days = g[2].number_input("«Новое» — сколько последних дней", min_value=1,
+                                 max_value=90, value=NEW_DAYS_DEFAULT, key="ev_new")
+
+    ev = ev_all[ev_all["регион"].isin(sel_reg) & ev_all["тема"].isin(sel_top)
+                & ev_all["тип"].isin(sel_type) & (ev_all["кратность"] >= min_ratio)]
+    if isinstance(period, (tuple, list)) and len(period) == 2:
+        ev = ev[(ev["дата"] >= pd.Timestamp(period[0]))
+                & (ev["дата"] <= pd.Timestamp(period[1]))]
+    ev = mark_new(ev, last_day, int(new_days))
+    sort_col = "прирост" if order == "приросту" else "кратность"
+    ev = ev.sort_values(sort_col, ascending=False)
+
+    # ---- требует внимания
+    fresh = ev[ev["новое"]]
+    st.markdown(f"#### Требует внимания — {len(fresh)}")
+    st.caption(
+        f"События последних {int(new_days)} дней. Отсчёт идёт от последнего дня данных "
+        f"КАЖДОГО региона, а не от сегодняшней даты: выгрузка историческая и "
+        f"заканчивается в разное время — "
+        + ", ".join(f"{r.replace(' область', '')} {d:%d.%m.%Y}"
+                    for r, d in last_day.items()) + ".")
+    if fresh.empty:
+        st.info("Новых событий под текущими фильтрами нет.")
+    else:
+        st.dataframe(feed_view(fresh), width="stretch", hide_index=True)
+
+    # ---- вся лента
+    st.markdown(f"#### Все события — {len(ev)}")
+    if ev.empty:
+        st.warning("Под выбранные фильтры не попало ни одного события.")
+        return
+    sel = st.dataframe(feed_view(ev), width="stretch", hide_index=True,
+                       on_select="rerun", selection_mode="single-row", key="ev_table")
+    rows = sel.selection.rows if hasattr(sel, "selection") else []
+    if not rows:
+        st.caption("Выберите строку, чтобы посмотреть ряд за две недели до и после "
+                   "события.")
+        return
+    r = ev.iloc[rows[0]]
+    st.plotly_chart(fig_event_series(daily, det, r["регион"], r["тема"], r["дата"]),
+                    width="stretch")
+    st.caption(
+        f"Пик {r['пик']:%d.%m.%Y} — {int(r['обращений'])} обращений при медиане окна "
+        f"{r['медиана окна']:.1f}: кратность ×{r['кратность']:.1f}, прирост "
+        f"+{r['прирост']:.1f}, держалось {int(r['дней подряд'])} дн. "
+        f"Тип — {r['тип']}. Красным отмечены дни, которые детектор считает всплеском.")
+
+
 # ---------------------------------------------------------------- страница
 def main():
     import streamlit as st
@@ -125,9 +301,14 @@ def main():
 
     st.divider()
 
+    # ---------------- блок 1б: события детектора
+    events_section(st, df)
+
+    st.divider()
+
     # ---------------- блок 2: структура потока
     st.subheader("Структура потока по регионам")
-    st.plotly_chart(fig_structure(df), use_container_width=True)
+    st.plotly_chart(fig_structure(df), width="stretch")
     st.caption(
         "Разброс доли не-problem от 0.2% до 67.8% — это разница в учётной "
         "политике регионов, а не в нагрузке. Костанай и Туркестан заводят "
@@ -165,7 +346,7 @@ def main():
 
     # ---------------- блок 3: динамика
     st.subheader("Динамика по месяцам")
-    st.plotly_chart(fig_dynamics(flt), use_container_width=True)
+    st.plotly_chart(fig_dynamics(flt), width="stretch")
 
     st.divider()
 
@@ -174,7 +355,7 @@ def main():
     if len(sel_reg) == 1:
         title += f" — {sel_reg[0]}"
     st.subheader(title)
-    st.plotly_chart(fig_topics(flt), use_container_width=True)
+    st.plotly_chart(fig_topics(flt), width="stretch")
 
 
 if __name__ == "__main__":
