@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from src.export import build_excel, build_pdf
 from src.spikes import (GAP_MIN, SEASONAL_REGIONS, classify_seasonal, daily_counts,
                         detect, gap_days, with_duration)
 
@@ -232,6 +233,10 @@ def events_section(st, df):
     ev = mark_new(ev, last_day, int(new_days))
     sort_col = "прирост" if order == "приросту" else "кратность"
     ev = ev.sort_values(sort_col, ascending=False)
+    descr = [f"события: регионов {len(sel_reg)} из {len(regions)}, "
+             f"тем {len(sel_top)} из {len(topics)}",
+             f"тип события: {', '.join(sel_type) if sel_type else '—'}",
+             f"кратность не ниже {min_ratio:g}, сортировка по {order}"]
 
     # ---- требует внимания
     fresh = ev[ev["новое"]]
@@ -251,14 +256,15 @@ def events_section(st, df):
     st.markdown(f"#### Все события — {len(ev)}")
     if ev.empty:
         st.warning("Под выбранные фильтры не попало ни одного события.")
-        return
-    sel = st.dataframe(feed_view(ev), width="stretch", hide_index=True,
+        return feed_view(ev), descr
+    shown = feed_view(ev)
+    sel = st.dataframe(shown, width="stretch", hide_index=True,
                        on_select="rerun", selection_mode="single-row", key="ev_table")
     rows = sel.selection.rows if hasattr(sel, "selection") else []
     if not rows:
         st.caption("Выберите строку, чтобы посмотреть ряд за две недели до и после "
                    "события.")
-        return
+        return shown, descr
     r = ev.iloc[rows[0]]
     st.plotly_chart(fig_event_series(daily, det, r["регион"], r["тема"], r["дата"]),
                     width="stretch")
@@ -267,6 +273,41 @@ def events_section(st, df):
         f"{r['медиана окна']:.1f}: кратность ×{r['кратность']:.1f}, прирост "
         f"+{r['прирост']:.1f}, держалось {int(r['дней подряд'])} дн. "
         f"Тип — {r['тип']}. Красным отмечены дни, которые детектор считает всплеском.")
+    return shown, descr
+
+
+# ---------------------------------------------------------------- выгрузка
+def export_section(st, df, flt, events, sel_reg, sel_topic, all_topics, lo, hi, ev_descr):
+    """Excel и PDF с тем же содержимым, что на экране. Ничего не пересчитывает."""
+    st.subheader("Выгрузка отчётов")
+    scope = df[df.region.isin(sel_reg) & (df.created_at >= lo) & (df.created_at < hi)]
+    descr = [f"классы: все (сводка), только городские проблемы (темы и события)",
+             f"темы: {len(sel_topic)} из {len(all_topics)}", *ev_descr]
+    st.caption(
+        "Выгружается ровно то, что показано выше при текущих фильтрах: сводка по "
+        "регионам по всем классам, структура тем и лента событий. Числа не "
+        "пересчитываются. Первый лист и первая страница — ограничения выгрузки; "
+        "их текст берётся из CLAUDE.md, а не пишется здесь заново.")
+    period = (lo, hi - pd.Timedelta(days=1))
+    c = st.columns(2)
+    if c[0].button("Собрать Excel", width="stretch"):
+        data = build_excel(scope, events, sel_reg, period, descr)
+        st.session_state["xlsx"] = data
+    if c[1].button("Собрать PDF", width="stretch"):
+        figs = [("Структура потока по регионам", fig_structure(scope)),
+                ("Динамика по месяцам", fig_dynamics(flt)),
+                ("Структура тем", fig_topics(flt))]
+        st.session_state["pdf"] = build_pdf(scope, events, sel_reg, period, figs, descr)
+    stamp = f"{lo:%Y%m%d}-{hi - pd.Timedelta(days=1):%Y%m%d}"
+    if st.session_state.get("xlsx"):
+        c[0].download_button("Скачать Excel", st.session_state["xlsx"],
+                             file_name=f"obrashcheniya-109-{stamp}.xlsx", width="stretch",
+                             mime="application/vnd.openxmlformats-officedocument."
+                                  "spreadsheetml.sheet")
+    if st.session_state.get("pdf"):
+        c[1].download_button("Скачать PDF", st.session_state["pdf"],
+                             file_name=f"obrashcheniya-109-{stamp}.pdf",
+                             mime="application/pdf", width="stretch")
 
 
 # ---------------------------------------------------------------- страница
@@ -302,7 +343,7 @@ def main():
     st.divider()
 
     # ---------------- блок 1б: события детектора
-    events_section(st, df)
+    events, ev_descr = events_section(st, df)
 
     st.divider()
 
@@ -324,7 +365,11 @@ def main():
     topics = sorted(problem["topic"].unique())
     f = st.columns([2, 2, 2])
     sel_reg = f[0].multiselect("Регион", regions, default=regions)
-    dmin, dmax = problem.created_at.min().date(), problem.created_at.max().date()
+    # Границы берутся по ВСЕЙ таблице, а не по problem: этот же период уходит в
+    # выгрузку, где сводка по регионам считается по всем классам. При границе по
+    # problem три справочных обращения Павлодара за 2020-02-09 выпадали из сводки,
+    # и она расходилась с эталоном на 3 строки.
+    dmin, dmax = df.created_at.min().date(), df.created_at.max().date()
     sel_period = f[1].date_input("Период", (dmin, dmax),
                                  min_value=dmin, max_value=dmax)
     sel_topic = f[2].multiselect("Тема", topics, default=topics)
@@ -356,6 +401,11 @@ def main():
         title += f" — {sel_reg[0]}"
     st.subheader(title)
     st.plotly_chart(fig_topics(flt), width="stretch")
+
+    st.divider()
+
+    # ---------------- блок 5: выгрузка
+    export_section(st, df, flt, events, sel_reg, sel_topic, topics, a, b, ev_descr)
 
 
 if __name__ == "__main__":
