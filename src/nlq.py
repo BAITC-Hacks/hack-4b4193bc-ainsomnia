@@ -475,7 +475,7 @@ def caveats(df, vocab, query):
                        f"{df.region.nunique()}: {names}")
             lo, hi = by_reg["mean"].min(), by_reg["mean"].max()
             if lo > 0 and hi / lo >= 2:
-                out.append(f"доли нарушения различаются в {hi / lo:.1f} раза при "
+                out.append(f"доли нарушения различаются в {hi / lo:.3f} раза при "
                            f"одинаковой схеме данных, и причина не установлена "
                            f"(раздел 3 CLAUDE.md). Сводное число по ним смешивает две "
                            f"несопоставимые величины — приводить его как общий уровень "
