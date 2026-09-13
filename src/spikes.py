@@ -42,6 +42,38 @@ DATA = Path("data/unified.parquet")
 DEEP_DIVE_REGIONS = ["Павлодарская область", "Карагандинская область"]
 SEASONAL_REGIONS = ["Павлодарская область", "Карагандинская область",
                     "Восточно-Казахстанская область"]
+GAP_MIN = 7          # дней подряд без обращений ПО ВСЕМУ РЕГИОНУ — пропуск выгрузки
+
+
+def gap_days(df, bounds, min_len=GAP_MIN):
+    """Дни, попавшие в пропуск выгрузки: {регион: булев ряд по календарю региона}.
+
+    Считается по региону ЦЕЛИКОМ и по ВСЕМ классам обращений, а не по срезу:
+    ноль по одной теме — это затишье, ноль по всему региону, включая справочные
+    звонки, — это выгрузка, которой нет. Такие дни не наблюдение «обращений не
+    было», а отсутствие наблюдения. Передавать сюда выборку, отфильтрованную по
+    `appeal_class`, нельзя — проверка станет мягче, чем написано.
+    """
+    out = {}
+    for reg, (lo, hi) in bounds.items():
+        cal = pd.date_range(lo, hi, freq="D")
+        tot = (df[df.region == reg].set_index("created_at").resample("D").size()
+               .reindex(cal, fill_value=0))
+        z = (tot.to_numpy() == 0)
+        mask = np.zeros(len(z), dtype=bool)
+        i = 0
+        while i < len(z):
+            if z[i]:
+                j = i
+                while j + 1 < len(z) and z[j + 1]:
+                    j += 1
+                if j - i + 1 >= min_len:
+                    mask[i:j + 1] = True
+                i = j + 1
+            else:
+                i += 1
+        out[reg] = pd.Series(mask, index=cal)
+    return out
 
 
 def daily_counts(df, skip_first_month=True):
@@ -64,8 +96,15 @@ def daily_counts(df, skip_first_month=True):
     return pd.concat(out, ignore_index=True), bounds
 
 
-def detect(daily, k=4.0, min_count=10, window=28):
-    """Всплески по сдвинутому окну. Возвращает строки с флагом spike."""
+def detect(daily, k=4.0, min_count=10, window=28, blocked=None):
+    """Всплески по сдвинутому окну. Возвращает строки с флагом spike.
+
+    `blocked` — дни пропуска выгрузки по регионам (см. gap_days). Если окно
+    медианы [t-window, t-1] хотя бы одним днём попадает в пропуск, детекция в
+    точке t не работает: фон занижен отсутствием данных, и любое возобновление
+    выгрузки выглядит скачком с нулевого фона. Это то же правило, что отсечение
+    первого календарного месяца, — там окна тоже нет.
+    """
     res = []
     for (reg, topic), g in daily.groupby(["region", "topic"], sort=False):
         g = g.sort_values("день").reset_index(drop=True)
@@ -83,7 +122,18 @@ def detect(daily, k=4.0, min_count=10, window=28):
         g["median_w"] = med
         g["mad_w"] = mad
         g["threshold"] = med + k * mad
-        g["spike"] = (y > g["threshold"]) & (y >= min_count) & np.isfinite(med)
+        # окно [t-window, t-1] пересекается с пропуском выгрузки
+        bad = np.zeros(n, dtype=bool)
+        if blocked is not None and reg in blocked:
+            bl = blocked[reg].reindex(g["день"]).fillna(False).to_numpy()
+            if n > window:
+                cs = np.concatenate([[0], np.cumsum(bl.astype(int))])
+                # число заблокированных дней в [t-window, t-1] для t >= window
+                bad[window:] = (cs[window:n] - cs[0:n - window]) > 0
+            bad[:min(window, n)] = True
+        g["окно в пропуске"] = bad
+        g["spike_raw"] = (y > g["threshold"]) & (y >= min_count) & np.isfinite(med)
+        g["spike"] = g["spike_raw"] & ~bad
         res.append(g)
     return pd.concat(res, ignore_index=True)
 
@@ -214,12 +264,15 @@ def main():
                     help="вывести дневной ряд по срезу и выйти")
     a = ap.parse_args()
 
-    df = pd.read_parquet(DATA, columns=["created_at", "region", "topic", "appeal_class"])
-    df = df[df.appeal_class == "problem"].copy()
-    df["created_at"] = pd.to_datetime(df["created_at"])
+    full = pd.read_parquet(DATA, columns=["created_at", "region", "topic", "appeal_class"])
+    full["created_at"] = pd.to_datetime(full["created_at"])
+    df = full[full.appeal_class == "problem"].copy()
 
     daily, bounds = daily_counts(df, skip_first_month=not a.keep_first_month)
-    det = detect(daily, a.k, a.min_count, a.window)
+    # Пропуски ищутся по ВСЕМ классам, а не только по problem: справочный звонок —
+    # тоже свидетельство того, что система работала и выгрузка за этот день есть.
+    blocked = gap_days(full, bounds)
+    det = detect(daily, a.k, a.min_count, a.window, blocked)
 
     if a.series:
         reg, top, f, t = a.series
@@ -240,8 +293,10 @@ def main():
     if a.keep_first_month:
         print("Отключено флагом --keep-first-month.")
     else:
-        d0, _ = daily_counts(df, skip_first_month=False)
-        ev0 = with_duration(detect(d0, a.k, a.min_count, a.window))
+        # Правило пропусков применяется и здесь, иначе блок смешает два отсева:
+        # у Туркестана 15 = 6 от первого месяца + 9 от пропуска выгрузки.
+        d0, b0 = daily_counts(df, skip_first_month=False)
+        ev0 = with_duration(detect(d0, a.k, a.min_count, a.window, gap_days(full, b0)))
         c0 = ev0.groupby("регион").size(); c1 = ev.groupby("регион").size()
         print(f"{'регион':32s} {'выброшен месяц':>15s} {'было':>6s} {'стало':>6s} {'отсечено':>9s}")
         for r in sorted(bounds):
@@ -251,6 +306,38 @@ def main():
         print(f"{'ИТОГО':32s} {'':>15s} {len(ev0):6d} {len(ev):6d} {len(ev0)-len(ev):9d}")
         print("Отсечённое включает не только всплески внутри выброшенного месяца, но и")
         print("всплески следующих недель, чьё окно опиралось на заниженный стартовый фон.")
+
+    # ---------- отсечение по пропускам в выгрузке
+    print("\n" + "=" * 78)
+    print(f"ОТСЕЧЕНИЕ ПО ПРОПУСКАМ В ВЫГРУЗКЕ (пропуск = {GAP_MIN}+ дней подряд без")
+    print("обращений по региону целиком; окно медианы, задетое пропуском, не считается)")
+    print("=" * 78)
+    gapped = {r: m for r, m in blocked.items() if m.any()}
+    if not gapped:
+        print(f"Пропусков длиннее {GAP_MIN} дней ни в одном регионе нет.")
+    else:
+        det_raw = det.copy()
+        det_raw["spike"] = det_raw["spike_raw"]
+        ev_raw = with_duration(det_raw)
+        c0, c1 = ev_raw.groupby("регион").size(), ev.groupby("регион").size()
+        print(f"{'регион':32s} {'пропуск':>25s} {'дней':>5s} "
+              f"{'было':>6s} {'стало':>6s} {'отсечено':>9s}")
+        for r, m in sorted(gapped.items()):
+            d = m[m].index
+            win = f"{d.min():%Y-%m-%d} → {d.max():%Y-%m-%d}"
+            b_, n_ = int(c0.get(r, 0)), int(c1.get(r, 0))
+            print(f"{r:32s} {win:>25s} {int(m.sum()):5d} {b_:6d} {n_:6d} {b_ - n_:9d}")
+        for r in sorted(set(c0.index) | set(c1.index)):
+            if r not in gapped and int(c0.get(r, 0)) != int(c1.get(r, 0)):
+                print(f"{r:32s} {'—':>25s} {'':>5s} "
+                      f"{int(c0.get(r, 0)):6d} {int(c1.get(r, 0)):6d} "
+                      f"{int(c0.get(r, 0)) - int(c1.get(r, 0)):9d}")
+        print(f"{'ИТОГО':32s} {'':>25s} {'':>5s} {len(ev_raw):6d} {len(ev):6d} "
+              f"{len(ev_raw) - len(ev):9d}")
+        print("Отсечённое — не события, а возобновление выгрузки: фон в окне занижен")
+        print("отсутствием данных, и любой обычный день после пропуска даёт кратность")
+        print("с нулевой медианы. Правило то же, что для первого месяца ряда: нет окна —")
+        print("нет детекции.")
 
     # ---------- 1. все всплески
     print("\n" + "=" * 78)

@@ -72,6 +72,8 @@ TOPIC_CUTS = ("top", "growth", "trend", "stopped", "share")
 # руководителя, а на вопрос о качестве разметки, поэтому из рейтингов исключается —
 # но не молча: его величина уходит в оговорку.
 RESIDUAL_TOPIC = "прочее"
+STOPPED_MONTHS = 6       # окно «перестало приходить»; период должен быть вдвое длиннее
+GROWTH_MIN_BASE = 100    # меньше обращений в прошлом периоде — процент прироста не значит ничего
 # Статусы в регионах написаны по-разному — это факт данных, не наша нормализация.
 CLOSED_MARKS = ("closed", "закрыт")
 
@@ -219,6 +221,7 @@ class Query:
     filters: dict = field(default_factory=dict)
     group_by: str | None = None
     top: int | None = None
+    focus: str | None = None        # названная в вопросе величина внутри group_by
     unit: str = "обращений"
 
     def where(self):
@@ -362,8 +365,17 @@ def _parse(question, vocab, df):
 
     # --- намерения, от самого узкого к самому общему
     if "прекратил" in q or "перестал" in q:
-        return Query("stopped", period or last_months(vocab.ref, 24), None, filters,
-                     group_by="topic"), None
+        p = period or last_months(vocab.ref, 2 * STOPPED_MONTHS * 2)
+        # «Перестало приходить» = было до и нет после. Если период короче двух окон,
+        # половина «до» пуста, и ответ «таких тем нет» получается всегда, при любых
+        # данных. Это правдоподобное число вместо ответа — отказываем.
+        if (p.hi - p.lo).days < 2 * STOPPED_MONTHS * 30:
+            return None, (f"период короче {2 * STOPPED_MONTHS} месяцев, а вопрос "
+                          f"«перестали приходить» сравнивает {STOPPED_MONTHS} месяцев "
+                          f"до и {STOPPED_MONTHS} после. На таком периоде ответ «таких "
+                          f"тем нет» получился бы при любых данных — спросите за год "
+                          f"или больше")
+        return Query("stopped", p, None, filters, group_by="topic"), None
     if "выходн" in q or "суббот" in q or "воскресен" in q:
         return Query("weekend", period or whole(df), None, filters), None
     if "дня недели" in q or "дни недели" in q or "день недели" in q:
@@ -389,9 +401,14 @@ def _parse(question, vocab, df):
               else "status" if "закрыт" in q
               else "sla_breach" if ("просроч" in q or "срок" in q or "нарушен" in q)
               else "topic")
+        # Если тема названа прямо, вопрос про ЕЁ долю. Фильтр по теме при этом
+        # снимается (иначе доля вышла бы 100%), но сама тема запоминается в focus:
+        # без этого headline-числом становилась доля крупнейшей темы, то есть
+        # ответ на другой вопрос.
         return Query("share", period or whole(df), None,
                      {k: v for k, v in filters.items() if k != by}, group_by=by,
-                     top=find_count(q, None) if by == "topic" else None), None
+                     top=find_count(q, None) if by == "topic" else None,
+                     focus=filters.get(by)), None
     if "просроч" in q:
         return Query("share", period or whole(df), None, filters, group_by="sla_breach"), None
     if "закрыт" in q:
@@ -445,6 +462,24 @@ def caveats(df, vocab, query):
         if f < FILL_WARN:
             out.append(f"поле `{c}` заполнено на {f * 100:.1f}% — ответ только по "
                        f"заполненным строкам, остальные в счёт не идут")
+    # Поле, заполненное лишь частью регионов, — это не «мало данных», а другая
+    # выборка. Если доли внутри неё расходятся в разы, сводное число смешивает
+    # несопоставимые величины, и это надо сказать до того, как его процитируют.
+    if query.group_by == "sla_breach" or "sla_breach" in query.filters:
+        sub = df[df.sla_breach.notna()]
+        by_reg = sub.groupby("region").sla_breach.agg(["size", "mean"])
+        if len(by_reg):
+            names = ", ".join(f"{r} {m * 100:.1f}% ({num(n)})"
+                              for r, (n, m) in by_reg.sort_values("mean").iterrows())
+            out.append(f"поле заполнено только у {len(by_reg)} регионов из "
+                       f"{df.region.nunique()}: {names}")
+            lo, hi = by_reg["mean"].min(), by_reg["mean"].max()
+            if lo > 0 and hi / lo >= 2:
+                out.append(f"доли нарушения различаются в {hi / lo:.1f} раза при "
+                           f"одинаковой схеме данных, и причина не установлена "
+                           f"(раздел 3 CLAUDE.md). Сводное число по ним смешивает две "
+                           f"несопоставимые величины — приводить его как общий уровень "
+                           f"просрочки нельзя")
     if query.group_by == "region" or (not query.filters.get("region") and
                                       query.metric in ("top", "count", "compare")):
         out.append("объёмы регионов напрямую несопоставимы: регионы применяют разные "
@@ -524,6 +559,13 @@ def run(df, vocab, query):
         tot = int(g.sum())
         if col == "topic":
             g = drop_residual(g, query, res)
+        if query.focus is not None:
+            v = int(g.get(query.focus, 0))
+            res["table"] = g
+            res["number"] = v / tot * 100 if tot else float("nan")
+            res["answer"] = (f"{query.focus} — {res['number']:.1f}% ({num(v)} из {num(tot)})"
+                             if tot else "нет данных")
+            return res
         res["table"] = g.head(query.top) if query.top else g
         if not tot:
             res["number"], res["answer"] = float("nan"), "нет данных"
@@ -547,7 +589,7 @@ def run(df, vocab, query):
         was = apply_filters(df, query.filters)
         was = was[query.period_prev.mask(was)].groupby("topic").size()
         both = pd.concat([was.rename("было"), now.rename("стало")], axis=1).fillna(0)
-        both = both[both["было"] >= 100]          # от малых чисел проценты бессмысленны
+        both = both[both["было"] >= GROWTH_MIN_BASE]
         both["прирост, %"] = (both["стало"] - both["было"]) / both["было"] * 100
         both = both.sort_values("прирост, %", ascending=False)
         if RESIDUAL_TOPIC in both.index:
@@ -564,8 +606,11 @@ def run(df, vocab, query):
         res["answer"] = (f"{both.index[0]} — {both['прирост, %'].iloc[0]:+.1f}% "
                          f"({num(both['было'].iloc[0])} → {num(both['стало'].iloc[0])})"
                          if len(both) else "нет данных")
-        res["caveats"].append("темы с историей меньше 100 обращений в прошлом периоде "
-                              "отброшены: процент прироста от малого числа не значит ничего")
+        res["caveats"].append(
+            f"темы с историей меньше {GROWTH_MIN_BASE} обращений в прошлом периоде "
+            f"отброшены: процент прироста от малого числа не значит ничего. Порог "
+            f"абсолютный и под длину периода не подстраивается — на коротком периоде "
+            f"он строже, чем на длинном")
     elif m in ("dow", "weekend"):
         w = d.created_at.dt.dayofweek
         g = w.value_counts().sort_index()
@@ -608,7 +653,7 @@ def run(df, vocab, query):
                 + ". Рост среднего в день частично объясняется тем, что регионов "
                   "становится больше, а не нагрузкой")
     elif m == "stopped":
-        recent = query.period.hi - pd.DateOffset(months=6)
+        recent = query.period.hi - pd.DateOffset(months=STOPPED_MONTHS)
         was = d[d.created_at < recent].groupby("topic").size()
         now = d[d.created_at >= recent].groupby("topic").size()
         both = pd.concat([was.rename("до"), now.rename("после")], axis=1).fillna(0)
@@ -620,7 +665,7 @@ def run(df, vocab, query):
                          if len(dead) else "таких тем нет: все темы, по которым обращения "
                                            "были раньше, приходят и в последние 6 месяцев")
         res["caveats"].append(f"«прекратились» = ноль обращений с {recent:%Y-%m-%d} "
-                              f"при 100+ обращениях до этой даты")
+                              f"при 100+ обращениях до этой даты, в пределах периода")
     else:
         raise ValueError(m)
     return res

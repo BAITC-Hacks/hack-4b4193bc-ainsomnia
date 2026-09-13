@@ -14,6 +14,12 @@
 только на дословной формулировке — это таблица подстановок, а не разбор вопроса,
 и доля перефраз показывает, какое из двух построено.
 
+Наборов перефраз два, но В ОТЧЁТ ИДЁТ ТОЛЬКО ОТЛОЖЕННЫЙ (HELDOUT). Первый набор
+(PARAPHRASES) использовался, чтобы найти дыры в словаре разбора, и разбор под него
+чинился — его доля ничего не измеряет и поэтому не публикуется. Он остаётся в коде
+как сторож: если раньше разбиравшаяся перефраза перестанет разбираться, прогон
+скажет об этом отдельной строкой.
+
 Выход: reports/nlq.md (числа, запросы, оговорки) и reports/nlq_charts.html (графики).
 """
 import sys
@@ -136,27 +142,22 @@ def main():
         md.append(render(res))
         refuse_ok += bool(res.get("refused"))
 
-    md.append("## Перефразы: разбор или таблица подстановок\n")
-    md.append("Те же двадцать смыслов, сказанные другими словами. Совпадение намерения "
-              "с исходным вопросом проверяется по типу запроса и разрезу.\n")
-    md.append("| № | Перефраза | Намерение | Совпало с исходным |")
-    md.append("|---|---|---|---|")
-    same = 0
+    # Первый набор — сторож, а не мера: в отчёт не идёт, см. модульную строку.
+    regressions = []
     for i, (orig, para) in enumerate(zip(QUESTIONS, PARAPHRASES), 1):
         a, b = answer(orig, df, vocab), answer(para, df, vocab)
         ka = None if a.get("refused") else (a["query"].metric, a["query"].group_by)
         kb = None if b.get("refused") else (b["query"].metric, b["query"].group_by)
-        hit = ka is not None and ka == kb
-        same += hit
-        md.append(f"| {i} | {para} | {kb[0] if kb else 'отказ'}"
-                  f"{' · ' + str(kb[1]) if kb and kb[1] else ''} | "
-                  f"{'да' if hit else '**нет** — ' + (str(ka) + ' против ' + str(kb))} |")
+        if ka is None or ka != kb:
+            regressions.append((i, para, ka, kb))
 
-    md.append("\n## Отложенный набор формулировок\n")
-    md.append("Первый набор перефраз использовался, чтобы найти дыры в словаре разбора, "
-              "и разбор под него чинился — значит, его результат завышен. Этот набор "
-              "написан после правок и прогоняется впервые; его цифра и есть честная.\n")
-    md.append("| № | Формулировка | Намерение | Совпало |")
+    md.append("\n## Перефразы: разбор или таблица подстановок\n")
+    md.append("Те же двадцать смыслов, сказанные другими словами. Если разбор работает "
+              "только на дословной формулировке — это таблица подстановок, а не разбор. "
+              "Набор написан после того, как разбор был дописан, и прогоняется как есть: "
+              "под его провалы разбор не правится, иначе цифра перестанет что-либо "
+              "измерять.\n")
+    md.append("| № | Формулировка | Намерение | Совпало с исходным |")
     md.append("|---|---|---|---|")
     held = 0
     for i, (orig, para) in enumerate(zip(QUESTIONS, HELDOUT), 1):
@@ -170,10 +171,8 @@ def main():
                   f"{'да' if hit else '**нет** — ожидалось ' + str(ka)} |")
 
     md.insert(3, f"\n**Итог: разобрано {ok} из {len(QUESTIONS)}; отказов с причиной там, "
-                 f"где ответить нельзя — {refuse_ok} из {len(MUST_REFUSE)}; "
-                 f"перефраза даёт тот же разбор в {same} случаях из {len(PARAPHRASES)} "
-                 f"(набор, под который чинился разбор) и в {held} из {len(HELDOUT)} "
-                 f"на отложенном наборе.**\n")
+                 f"где ответить нельзя — {refuse_ok} из {len(MUST_REFUSE)}; перефраза "
+                 f"даёт тот же разбор в {held} случаях из {len(HELDOUT)}.**\n")
 
     OUT_MD.parent.mkdir(exist_ok=True)
     OUT_MD.write_text("\n".join(md) + "\n", encoding="utf-8")
@@ -187,7 +186,10 @@ def main():
     OUT_HTML.write_text("\n".join(parts), encoding="utf-8")
 
     print(f"разобрано {ok}/{len(QUESTIONS)} · отказов где надо {refuse_ok}/{len(MUST_REFUSE)}"
-          f" · перефразы {same}/{len(PARAPHRASES)} · отложенный набор {held}/{len(HELDOUT)}")
+          f" · перефразы {held}/{len(HELDOUT)}")
+    for i, para, ka, kb in regressions:
+        print(f"  СТОРОЖ: перефраза {i} перестала разбираться как исходный вопрос "
+              f"({ka} -> {kb}): {para}")
     for i, q, why in refused_wrongly:
         print(f"  НЕ РАЗОБРАН {i}: {q}\n      {why[:120]}")
     print(f"отчёт: {OUT_MD} · графики: {OUT_HTML}")
