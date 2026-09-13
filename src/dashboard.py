@@ -308,7 +308,18 @@ def export_section(st, df, flt, events, sel_reg, sel_topic, all_topics, lo, hi, 
         figs = [("Структура потока по регионам", fig_structure(scope)),
                 ("Динамика по месяцам", fig_dynamics(flt)),
                 ("Структура тем", fig_topics(flt))]
-        st.session_state["pdf"] = build_pdf(scope, events, sel_reg, period, figs, descr)
+        # PDF зависит от reportlab и от системного шрифта с кириллицей. Обе
+        # причины отказа внешние по отношению к данным, поэтому объясняем их,
+        # а не показываем трейсбек: Excel при этом остаётся доступен.
+        try:
+            st.session_state["pdf"] = build_pdf(scope, events, sel_reg, period,
+                                                figs, descr)
+        except ImportError:
+            st.error("PDF не собран: не установлен `reportlab`. "
+                     "Установите его — `uv pip install reportlab==5.0.1` — "
+                     "или выгрузите Excel, он не требует дополнительных пакетов.")
+        except RuntimeError as e:
+            st.error(f"PDF не собран: {e}. Excel при этом доступен.")
     stamp = f"{lo:%Y%m%d}-{hi - pd.Timedelta(days=1):%Y%m%d}"
     if st.session_state.get("xlsx"):
         c[0].download_button("Скачать Excel", st.session_state["xlsx"],
@@ -330,9 +341,12 @@ def main():
     st.title("Обращения 109 — витрина руководителя")
 
     if not DATA.exists():
-        st.error(f"Нет файла {DATA}. Соберите его: "
-                 "`.venv/bin/python -m src.adapters.build_unified`, "
-                 "затем `.venv/bin/python -m src.topic_mapping`.")
+        st.error(
+            f"Нет файла {DATA}. Соберите его тремя шагами по порядку:\n\n"
+            "1. `.venv/bin/python -m src.adapters.adapters`\n"
+            "2. `.venv/bin/python -m src.adapters.build_unified`\n"
+            "3. `.venv/bin/python -m src.topic_mapping`\n\n"
+            "Подробнее — раздел «Развёртывание с нуля» в CLAUDE.md.")
         st.stop()
 
     df = st.cache_data(load_data)()

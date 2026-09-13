@@ -262,8 +262,11 @@ def main():
     print(f"{DIM}Дней в показе {days}, пауза {a.pause:.1f} с — "
           f"проигрывание уложится в {STREAM_BUDGET} с{OFF}")
     if not DATA.exists():
-        print(f"{RED}Нет файла {DATA}. Сначала соберите его: "
-              f".venv/bin/python -m src.adapters.adapters{OFF}")
+        print(f"{RED}Нет файла {DATA}. Соберите его тремя шагами по порядку:{OFF}")
+        print("  1. .venv/bin/python -m src.adapters.adapters")
+        print("  2. .venv/bin/python -m src.adapters.build_unified")
+        print("  3. .venv/bin/python -m src.topic_mapping")
+        print("  Подробнее — раздел «Развёртывание с нуля» в CLAUDE.md")
         return 1
 
     df = step_load()
