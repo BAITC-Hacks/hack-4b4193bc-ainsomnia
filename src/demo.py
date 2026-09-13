@@ -36,9 +36,11 @@ DATA = Path("data/unified.parquet")
 OUT = Path("reports/demo")
 REGION = "Павлодарская область"
 TOPIC = "теплоснабжение"
-DAY_FROM = pd.Timestamp("2022-11-12")
+DAY_FROM = pd.Timestamp("2022-10-15")   # раньше эпизода: см. step_load, показ сигналов до него
 DAY_TO = pd.Timestamp("2022-12-03")
 W = 78
+STREAM_BUDGET = 80       # секунд на проигрывание дней; пауза подстраивается под окно
+MAX_PAUSE = 1.6          # быстрее следить за экраном всё равно не получится
 
 BOLD, DIM, RED, GREEN, YELLOW, BLUE, OFF = (
     "\033[1m", "\033[2m", "\033[31m", "\033[32m", "\033[33m", "\033[34m", "\033[0m")
@@ -82,6 +84,9 @@ def step_load():
           f"{df.region.nunique()} регионов")
     print(f"  Эпизод: {REGION}, тема «{TOPIC}», "
           f"{DAY_FROM:%d.%m.%Y} — {DAY_TO:%d.%m.%Y}")
+    print(f"  {YELLOW}Показ начинается раньше эпизода: по этой теме детектор "
+          f"поднимает сигналы\n  и до него, и это должно быть видно, а не скрыто "
+          f"выбором стартовой даты.{OFF}")
     print(f"  {DIM}Ни одно число ниже не придумано: всё читается из этого файла{OFF}")
     print(f"\n  {YELLOW}Оговорка о границе показа.{OFF} Сборка канона из сырых CSV — "
           f"шаг пакетный:\n  адаптер разбирает файл региона целиком "
@@ -186,9 +191,17 @@ def step_feed(sl, blocked, pause):
                  for x in ev["spike_type"]]
     win = ev[(ev["дата"] >= DAY_FROM) & (ev["дата"] <= DAY_TO)]
     view = feed_view(win.sort_values("прирост", ascending=False))
-    print(view.to_string(index=False))
+    # Колонка типа (сезонный/аномалия) в показе скрыта: при двух прошлых годах
+    # метки внутри одного эпизода расходятся из-за попадания в единственный
+    # всплеск прошлого года, и объяснять это на показе негде. В витрине колонка
+    # остаётся — там под неё есть блок «Как это считается». См. 5f CLAUDE.md.
+    shown_cols = [c for c in view.columns if c != "тип"]
+    print(view[shown_cols].to_string(index=False))
     print(f"\n  {DIM}Та же таблица и в том же порядке, что в витрине: "
           f"feed_view() из src/dashboard.py{OFF}")
+    print(f"  {DIM}Колонка типа события (сезонный / аномалия) в показе скрыта: "
+          f"при двух прошлых\n  годах метки внутри одного эпизода расходятся — "
+          f"объяснение в разделе 5f.{OFF}")
     print(f"  {DIM}Витрину целиком в терминале показать нельзя — это веб-страница. "
           f"Запуск:{OFF}")
     print(f"  {BOLD}.venv/bin/streamlit run src/dashboard.py{OFF}")
@@ -232,13 +245,22 @@ def step_export(df, view):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--pause", type=float, default=1.6, help="пауза между днями, сек")
+    ap.add_argument("--pause", type=float, default=None,
+                    help=f"пауза между днями, сек; по умолчанию "
+                         f"{STREAM_BUDGET} с на всё окно, но не больше {MAX_PAUSE} с")
     ap.add_argument("--no-export", action="store_true", help="не собирать файлы")
     a = ap.parse_args()
 
+    days = len(pd.date_range(DAY_FROM, DAY_TO))
+    if a.pause is None:
+        # Держим прогон в пределах двух минут независимо от длины окна показа:
+        # проигрывание дней укладывается в STREAM_BUDGET, остальное — накладные.
+        a.pause = min(MAX_PAUSE, STREAM_BUDGET / max(days, 1))
     started = time.time()
     print(f"\n{BOLD}СКВОЗНОЙ СЦЕНАРИЙ: обращение → тема → счётчики → сигнал → "
           f"отчёт{OFF}")
+    print(f"{DIM}Дней в показе {days}, пауза {a.pause:.1f} с — "
+          f"проигрывание уложится в {STREAM_BUDGET} с{OFF}")
     if not DATA.exists():
         print(f"{RED}Нет файла {DATA}. Сначала соберите его: "
               f".venv/bin/python -m src.adapters.adapters{OFF}")
