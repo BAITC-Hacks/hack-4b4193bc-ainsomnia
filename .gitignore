@@ -29,3 +29,6 @@ __pycache__/
 data/unified.parquet
 data/by_region/
 reports/demo/
+
+# Аналитический прогон «Х» — рабочий код и отчёты, не коммитятся
+analysis/
