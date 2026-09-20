@@ -40,7 +40,16 @@ DAY_FROM = pd.Timestamp("2022-10-15")   # раньше эпизода: см. ste
 DAY_TO = pd.Timestamp("2022-12-03")
 W = 78
 STREAM_BUDGET = 80       # секунд на проигрывание дней; пауза подстраивается под окно
+ROUTE_BUDGET = 35        # секунд на проход модулей 1–2 по тем же дням
 MAX_PAUSE = 1.6          # быстрее следить за экраном всё равно не получится
+SIMILAR_DAYS = 14        # окно поиска похожих обращений, суток назад
+SIMILAR_SHOW = 5         # сколько ближайших похожих показывать
+PRIORITY_MIN_BASE = 100  # меньше размеченных обращений по теме — доля ненадёжна
+DUP_USELESS_SHARE = 0.5  # выше этой доли «повторов» проверка ничего не различает
+# Канонические поля для проверки на повтор. created_at исключено намеренно:
+# у двух обращений время не совпадает никогда, и проверка была бы пустой.
+DUP_FIELDS = ["region", "category", "district", "executor", "status",
+              "sla_breach", "topic", "appeal_class"]
 
 BOLD, DIM, RED, GREEN, YELLOW, BLUE, OFF = (
     "\033[1m", "\033[2m", "\033[31m", "\033[32m", "\033[33m", "\033[34m", "\033[0m")
@@ -78,7 +87,8 @@ def bar(n, scale):
 def step_load():
     head("ШАГ 0. Источник данных")
     df = pd.read_parquet(DATA, columns=["created_at", "region", "category", "topic",
-                                        "appeal_class"])
+                                        "appeal_class", "district", "executor",
+                                        "status", "sla_breach"])
     df["created_at"] = pd.to_datetime(df["created_at"])
     print(f"  Файл {DATA}: {num(len(df))} обращений, "
           f"{df.region.nunique()} регионов")
@@ -95,6 +105,158 @@ def step_load():
           f"канона, а живьём показана классификация:\n  тема и класс присваиваются "
           f"вызовом справочника на настоящем значении category.")
     return df
+
+
+def priority_topics(df):
+    """Темы, где доля просрочки исторически выше средней. Порог — из данных.
+
+    Разметка просрочки (`sla_breach`) есть только у двух регионов, поэтому порог
+    и доли считаются по ним. Это перенос между регионами, и он оговаривается
+    в выводе: у самих этих двух регионов доли расходятся в разы."""
+    lab = df[df.sla_breach.notna() & (df.appeal_class == "problem")]
+    base = float(lab.sla_breach.mean())
+    g = lab.groupby("topic").sla_breach.agg(["size", "mean"])
+    hot = {t: float(r["mean"]) for t, r in g.iterrows()
+           if r["mean"] > base and r["size"] >= PRIORITY_MIN_BASE}
+    thin = {t: (int(r["size"]), float(r["mean"])) for t, r in g.iterrows()
+            if r["mean"] > base and r["size"] < PRIORITY_MIN_BASE}
+    return base, hot, thin, lab
+
+
+def similar_appeals(pool, appeal):
+    """Похожие: тот же регион и тема, тот же район если он заполнен, окно
+    SIMILAR_DAYS суток до момента обращения. Сортировка — от ближайших по времени."""
+    lo = appeal.created_at - pd.Timedelta(days=SIMILAR_DAYS)
+    m = ((pool.created_at < appeal.created_at) & (pool.created_at >= lo)
+         & (pool.region == appeal.region) & (pool.topic == appeal.topic))
+    if pd.notna(appeal.district):
+        m &= (pool.district == appeal.district)
+    return pool[m].sort_values("created_at", ascending=False)
+
+
+def duplicates_among(similar, appeal):
+    """Повтор: совпадение по всем каноническим полям, кроме времени поступления."""
+    if similar.empty:
+        return similar
+    # astype(object) до замены пропусков: в boolean-колонку (sla_breach)
+    # строку положить нельзя, fillna на ней падает.
+    block = similar[DUP_FIELDS].astype(object)
+    key = block.mask(block.isna(), "∅").astype(str)
+    want = pd.Series({c: "∅" if pd.isna(appeal[c]) else str(appeal[c])
+                      for c in DUP_FIELDS})
+    return similar[(key == want).all(axis=1)]
+
+
+def step_modules_1_2(df, pause):
+    """Модуль 1 — приём и маршрутизация. Модуль 2 — ассистент оператора."""
+    head("МОДУЛЬ 1. Приём и маршрутизация · МОДУЛЬ 2. Ассистент оператора")
+    base, hot, thin, lab = priority_topics(df)
+    # Поток эпизода: тот же регион и та же тема, что и в модуле 3, иначе
+    # сквозной сценарий распадается на два разных сюжета.
+    pool = df[(df.region == REGION) & (df.topic == TOPIC)
+              & (df.appeal_class == "problem")]
+    ex_fill = float(df[df.region == REGION].executor.notna().mean())
+    ex_all = float(df.executor.notna().mean())
+
+    print(f"  {BOLD}Приоритет считается из данных, порог не подбирался.{OFF} "
+          f"Средняя доля просрочки")
+    print(f"  по размеченным обращениям — {base * 100:.2f}% ({num(len(lab))} обращений). "
+          f"Тема приоритетна,")
+    print(f"  если её доля выше средней при базе не меньше {PRIORITY_MIN_BASE} "
+          f"размеченных обращений.")
+    mark = (f"{RED}{BOLD}приоритетная{OFF} ({hot[TOPIC] * 100:.2f}%)" if TOPIC in hot
+            else "не приоритетная")
+    print(f"  Приоритетных тем: {len(hot)}. Тема «{TOPIC}» — {mark}")
+    if thin:
+        t0 = sorted(thin.items(), key=lambda kv: -kv[1][1])[0]
+        print(f"  {DIM}Не засчитаны по малой базе: {len(thin)} тем, крупнейшая — "
+              f"«{t0[0]}» {t0[1][1] * 100:.1f}% на {t0[1][0]} обращениях{OFF}")
+    by_reg = lab.groupby("region").sla_breach.mean()
+    print(f"  {YELLOW}Оговорка к приоритету.{OFF} Разметка просрочки есть только у "
+          f"{len(by_reg)} регионов из {df.region.nunique()}:")
+    print("  " + ", ".join(f"{r.replace(' область', '')} {v * 100:.2f}%"
+                           for r, v in by_reg.items())
+          + f" — разница в {by_reg.max() / by_reg.min():.1f} раза при одинаковой")
+    print(f"  схеме данных и без объяснения. Для {REGION.replace(' область', '')} это "
+          f"перенос чужой разметки.")
+
+    print(f"\n  {YELLOW}Оговорка к маршрутизации.{OFF} Тема и класс определяются "
+          f"справочником правил")
+    print(f"  (src/topic_mapping.py), а не дообученной моделью. Классификатор по тексту")
+    print(f"  обращения обучать не на чем: в выгрузке 55 строк текста на 1 063 216 "
+          f"(раздел 5b).")
+    if ex_fill == 0:
+        print(f"\n  {RED}Ответственной службы у этого региона в данных нет.{OFF} Поле "
+              f"executor заполнено")
+        print(f"  у {REGION} в {ex_fill * 100:.2f}% строк (по всей таблице "
+              f"{ex_all * 100:.1f}%). Подставлять")
+        print(f"  службу неоткуда, и мы её не подставляем — показываем пропуск как пропуск.")
+
+    print(f"\n  {DIM}Первое обращение каждого дня по теме «{TOPIC}»: путь от "
+          f"поступления до службы.")
+    print(f"  {DIM}Похожие ищутся за")
+    print(f"  {SIMILAR_DAYS} суток до обращения; развёрнутый список — на первом дне и на "
+          f"дне первого сигнала,")
+    print(f"  дальше сводной строкой, чтобы проход остался в три минуты.{OFF}\n")
+
+    expand_on = {DAY_FROM, pd.Timestamp("2022-10-28")}
+    seen = dup_found = 0
+    warned = False
+    dup_share_max = 0.0
+    for day in pd.date_range(DAY_FROM, DAY_TO):
+        today = pool[pool.created_at.dt.floor("D") == day]
+        if today.empty:
+            continue
+        a = today.sort_values("created_at").iloc[0]
+        seen += 1
+        topic, cls = map_topic(a.category), classify_appeal(a.category)
+        pr = f" {RED}{BOLD}[приоритет]{OFF}" if topic in hot else ""
+        svc = a.executor if pd.notna(a.executor) else f"{RED}поля нет{OFF}"
+        print(f"  {day:%d.%m} {a.created_at:%H:%M:%S}  «{a.category}»  {GREEN}→{OFF} "
+              f"{topic} · {cls}  {GREEN}→{OFF} служба: {svc}{pr}")
+        sim = similar_appeals(pool, a)
+        dups = duplicates_among(sim, a)
+        dup_found += int(len(dups) > 0)
+        if len(sim):
+            dup_share_max = max(dup_share_max, len(dups) / len(sim))
+        if day in expand_on:
+            print(f"    {DIM}похожих за {SIMILAR_DAYS} суток: {len(sim)}; ближайшие:{OFF}")
+            for _, r in sim.head(SIMILAR_SHOW).iterrows():
+                dist = r.district if pd.notna(r.district) else "—"
+                print(f"      {r.created_at:%d.%m.%Y %H:%M}  статус «{r.status}»  "
+                      f"район: {dist}")
+            verdict = (f"{RED}вероятный дубликат: {len(dups)}{OFF}" if len(dups)
+                       else f"{GREEN}повторов нет{OFF}")
+            print(f"    проверка на повтор по полям {', '.join(DUP_FIELDS)} "
+                  f"(без времени): {verdict}")
+            share = len(dups) / len(sim) if len(sim) else 0.0
+            if share > DUP_USELESS_SHARE and not warned:
+                warned = True
+                filled = [c for c in DUP_FIELDS
+                          if pool[c].notna().any()]
+                print(f"    {RED}Проверка на повтор здесь ничего не различает:{OFF} "
+                      f"{len(dups)} из {len(sim)} = {share * 100:.0f}%.")
+                print(f"    У этого региона из восьми канонических полей заполнены "
+                      f"только {len(filled)}:")
+                print(f"    {', '.join(filled)} — они одинаковы у тысяч обращений.")
+                print(f"    Чтобы отличать повтор, нужен адрес или идентификатор "
+                      f"заявителя; и то и другое —")
+                print(f"    персональные данные, в канон они не переносятся "
+                      f"(раздел 1 CLAUDE.md). Вывод: без них")
+                print(f"    дедупликация по метаданным невозможна, и выдавать эти "
+                      f"числа за найденные")
+                print(f"    повторы нельзя.")
+        else:
+            verdict = f"{RED}дубликат {len(dups)}{OFF}" if len(dups) else "повторов нет"
+            print(f"    {DIM}похожих за {SIMILAR_DAYS} суток: {len(sim)}, {verdict}{OFF}")
+        wait(pause)
+
+    print(f"\n  {YELLOW}Оговорка к ассистенту.{OFF} Похожесть считается совпадением "
+          f"метаданных —")
+    print(f"  регион, тема, район, окно {SIMILAR_DAYS} суток, — а не дообученными "
+          f"эмбеддингами:")
+    print(f"  для них нужен текст обращения, которого в выгрузке нет.")
+    return seen, dup_found, (TOPIC in hot), dup_share_max
 
 
 def step_stream(df, pause):
@@ -257,10 +419,12 @@ def main():
         # проигрывание дней укладывается в STREAM_BUDGET, остальное — накладные.
         a.pause = min(MAX_PAUSE, STREAM_BUDGET / max(days, 1))
     started = time.time()
-    print(f"\n{BOLD}СКВОЗНОЙ СЦЕНАРИЙ: обращение → тема → счётчики → сигнал → "
-          f"отчёт{OFF}")
-    print(f"{DIM}Дней в показе {days}, пауза {a.pause:.1f} с — "
-          f"проигрывание уложится в {STREAM_BUDGET} с{OFF}")
+    route_pause = min(a.pause, ROUTE_BUDGET / max(days, 1))
+    print(f"\n{BOLD}СКВОЗНОЙ СЦЕНАРИЙ ПО ТРЁМ МОДУЛЯМ: приём и маршрутизация → "
+          f"ассистент оператора → витрина{OFF}")
+    print(f"{DIM}Дней в показе {days}; пауза {route_pause:.1f} с в модулях 1–2 и "
+          f"{a.pause:.1f} с в модуле 3 —{OFF}")
+    print(f"{DIM}проигрывание уложится в {ROUTE_BUDGET + STREAM_BUDGET} с{OFF}")
     if not DATA.exists():
         print(f"{RED}Нет файла {DATA}. Соберите его тремя шагами по порядку:{OFF}")
         print("  1. .venv/bin/python -m src.adapters.adapters")
@@ -270,6 +434,8 @@ def main():
         return 1
 
     df = step_load()
+    wait(a.pause)
+    routed, dup_days, prio, dup_share = step_modules_1_2(df, route_pause)
     wait(a.pause)
     sl, full, first, mism, blocked = step_stream(df, a.pause)
     if first is None:
@@ -281,12 +447,37 @@ def main():
     clean = True if a.no_export else step_export(df, view)
 
     head("ИТОГ", GREEN)
+    print(f"  {BOLD}Модуль 1 — приём и маршрутизация:{OFF} путь показан для первого "
+          f"обращения каждого")
+    print(f"  из {routed} дней; тема и класс — живым вызовом справочника, приоритет — "
+          f"по доле")
+    print(f"  просрочки из данных. Ответственная служба не показана: поля executor "
+          f"у региона нет.")
+    print(f"  {BOLD}Модуль 2 — ассистент оператора:{OFF} похожие обращения найдены за "
+          f"{SIMILAR_DAYS} суток")
+    print(f"  по совпадению метаданных. Проверка на повтор в этом регионе "
+          f"{RED}не работает{OFF}: до")
+    print(f"  {dup_share * 100:.0f}% похожих совпадают по всем заполненным полям — "
+          f"различать их нечем,")
+    print(f"  адрес и заявитель в канон не переносятся как персональные данные.")
+    print(f"  {BOLD}Модуль 3 — витрина и детектор:{OFF} ниже.\n")
     print(f"  Обращения прочитаны из выгрузки, тема и класс присвоены справочником,")
     print(f"  детектор поднял сигнал {BOLD}{first:%d.%m.%Y}{OFF} на "
           f"{len(pd.date_range(DAY_FROM, DAY_TO))} проигранных днях,")
     print(f"  расхождений с полным прогоном {mism}, отчёт собран"
           + ("" if a.no_export else f", ПДн в нём {'нет' if clean else 'НАЙДЕНЫ'}"))
     print(f"  Прогон занял {time.time() - started:.0f} с.")
+    print(f"\n  {BOLD}Какие модули пройдены целиком, какие — на метаданных:{OFF}")
+    print(f"  {GREEN}Целиком:{OFF} модуль 3 — детектор, витрина и выгрузка работают "
+          f"на настоящих данных")
+    print(f"    и настоящем коде, без допущений.")
+    print(f"  {YELLOW}На метаданных вместо дообученных моделей:{OFF} модуль 1 "
+          f"(маршрутизация по справочнику")
+    print(f"    правил, а не по тексту обращения) и модуль 2 (похожесть по совпадению "
+          f"полей,")
+    print(f"    а не по эмбеддингам). Причина одна и та же: текста обращений в выгрузке "
+          f"нет —")
+    print(f"    55 строк на 1 063 216. Это ограничение данных, а не реализации.")
     print(f"\n  {DIM}Что показать в терминале нельзя, и почему:{OFF}")
     print(f"  {DIM}  · витрина — веб-страница; данные её ленты выведены выше,{OFF}")
     print(f"  {DIM}    запуск: .venv/bin/streamlit run src/dashboard.py{OFF}")
