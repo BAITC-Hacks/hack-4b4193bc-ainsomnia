@@ -1,0 +1,8 @@
+# Дообучение классификатора тем (раздел 5k CLAUDE.md).
+# Ставится ОТДЕЛЬНО от requirements.txt: витрине и детектору torch не нужен.
+#   uv pip install --python .venv/bin/python -r requirements-ml.txt
+# Занимает ~3 ГБ сверх основного окружения. Версии — из фактической установки.
+torch==2.14.0
+transformers==5.17.0
+datasets==5.0.1
+accelerate==1.15.0
