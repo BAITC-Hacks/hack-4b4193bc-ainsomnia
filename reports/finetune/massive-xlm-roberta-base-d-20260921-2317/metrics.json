@@ -1,0 +1,167 @@
+{
+  "run": "massive-xlm-roberta-base-d-20260921-2317",
+  "model": "FacebookAI/xlm-roberta-base",
+  "csv": "data/external/massive.csv",
+  "shuffle_labels": false,
+  "classes": 59,
+  "random_macro_f1": 0.01694915254237288,
+  "baselines": {
+    "most_frequent": {
+      "macro_f1": 0.0022692971693503727,
+      "micro_f1": 0.07174733951253004,
+      "weighted_f1": 0.009606146033388071,
+      "accuracy": 0.07174733951253004,
+      "n": 2913,
+      "classes_true": 59,
+      "classes_pred": 1
+    },
+    "tfidf_logreg": {
+      "macro_f1": 0.7938859220198309,
+      "micro_f1": 0.8163405423961552,
+      "weighted_f1": 0.8179779186588466,
+      "accuracy": 0.8163405423961552,
+      "n": 2913,
+      "classes_true": 59,
+      "classes_pred": 59
+    },
+    "tfidf_logreg_arbitrary_C": {
+      "macro_f1": 0.7947151333289983,
+      "micro_f1": 0.8170271198077583,
+      "weighted_f1": 0.8190605242932347,
+      "accuracy": 0.8170271198077583,
+      "n": 2913,
+      "classes_true": 59,
+      "classes_pred": 59
+    },
+    "tfidf_search": {
+      "C": 8.0,
+      "val_macro_f1": 0.7997473930164543,
+      "grid": [
+        {
+          "C": 0.25,
+          "val_macro_f1": 0.6654065522633439
+        },
+        {
+          "C": 0.5,
+          "val_macro_f1": 0.7455203987355177
+        },
+        {
+          "C": 1.0,
+          "val_macro_f1": 0.7692296974308327
+        },
+        {
+          "C": 2.0,
+          "val_macro_f1": 0.7850571541696335
+        },
+        {
+          "C": 4.0,
+          "val_macro_f1": 0.7953163908012736
+        },
+        {
+          "C": 8.0,
+          "val_macro_f1": 0.7997473930164543
+        }
+      ]
+    }
+  },
+  "model_params": 278089019,
+  "device": "mps",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 2.73177145474535,
+      "val_macro_f1": 0.542088384634798,
+      "val_accuracy": 0.7295
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.9447131664010651,
+      "val_macro_f1": 0.696706521935731,
+      "val_accuracy": 0.819
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.5830240399117396,
+      "val_macro_f1": 0.775463474007317,
+      "val_accuracy": 0.833
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.40202387443007714,
+      "val_macro_f1": 0.8079919815214575,
+      "val_accuracy": 0.844
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.27159237599641345,
+      "val_macro_f1": 0.8253875626059209,
+      "val_accuracy": 0.856
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.18277571687534888,
+      "val_macro_f1": 0.8508847866559903,
+      "val_accuracy": 0.8645
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.11315857471201658,
+      "val_macro_f1": 0.8422518706729444,
+      "val_accuracy": 0.8645
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.07091035031433646,
+      "val_macro_f1": 0.8525299122118927,
+      "val_accuracy": 0.87
+    }
+  ],
+  "test": {
+    "macro_f1": 0.8361791301827284,
+    "micro_f1": 0.870236869207003,
+    "weighted_f1": 0.8697623357463701,
+    "accuracy": 0.870236869207003,
+    "n": 2913,
+    "classes_true": 59,
+    "classes_pred": 59
+  },
+  "best_epoch": 8,
+  "lr": 8e-05,
+  "lr_search": [
+    {
+      "lr": 1e-05,
+      "val_macro_f1": 0.31059987144703294,
+      "probe_epochs": 3,
+      "seconds": 35823.1
+    },
+    {
+      "lr": 2e-05,
+      "val_macro_f1": 0.5437001151035362,
+      "probe_epochs": 3,
+      "seconds": 1055.7
+    },
+    {
+      "lr": 3e-05,
+      "val_macro_f1": 0.6817872923136449,
+      "probe_epochs": 3,
+      "seconds": 1101.9
+    },
+    {
+      "lr": 5e-05,
+      "val_macro_f1": 0.7276973229997239,
+      "probe_epochs": 3,
+      "seconds": 1037.2
+    },
+    {
+      "lr": 8e-05,
+      "val_macro_f1": 0.7648392699903093,
+      "probe_epochs": 3,
+      "seconds": 1055.4
+    }
+  ],
+  "best_val_macro_f1": 0.8525299122118927,
+  "last_val_macro_f1": 0.8525299122118927,
+  "train_seconds": 2767.0,
+  "gain_over_tfidf": 0.0422932081628975,
+  "gain_over_most_frequent": 0.833909833013378
+}

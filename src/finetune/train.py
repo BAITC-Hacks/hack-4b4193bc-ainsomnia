@@ -99,6 +99,18 @@ def main():
                     default="stratified")
     ap.add_argument("--min-class-count", type=int, default=10)
     ap.add_argument("--rare-policy", choices=["drop", "merge"], default="drop")
+    ap.add_argument("--lr-grid", default="",
+                    help="через запятую: короткие пробные прогоны на каждом "
+                         "значении, выбор по валидации, тест не участвует")
+    ap.add_argument("--lr-probe-epochs", type=int, default=3)
+    ap.add_argument("--lr-edge", type=float,
+                    help="если лучший lr оказался наибольшим в сетке, "
+                         "дополнительно пробуется это значение: оптимум на "
+                         "краю сетки значит, что сетка его может не накрывать")
+    ap.add_argument("--baselines-from",
+                    help="metrics.json прошлого прогона: базовые линии взять "
+                         "оттуда, а не считать заново (сверяется по составу "
+                         "классов и размерам выборок)")
     ap.add_argument("--epochs", type=int, default=5)
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--lr", type=float, default=5e-5)
@@ -159,21 +171,45 @@ def main():
     # ---------------------------------------------------------- базовые линии
     log("\nБАЗОВЫЕ ЛИНИИ (на тесте)")
     t0 = time.time()
-    mf_pred, mf_label = P.baseline_most_frequent(parts["train"], parts["test"], lmap)
-    mf = P.evaluate(y["test"], mf_pred, names)
-    log(f"  самый частый класс («{mf_label}»): macro-F1 {mf['macro_f1']:.4f}, "
-        f"accuracy {mf['accuracy']:.4f}")
-    log("  TF-IDF + логрег, подбор C по валидации:")
-    tfidf_pred, arb_pred, tf_search = P.baseline_tfidf(
-        parts["train"], parts["validation"], parts["test"], lmap, a.seed, log)
-    tf = P.evaluate(y["test"], tfidf_pred, names)
-    tf_arb = P.evaluate(y["test"], arb_pred, names) if arb_pred is not None else None
-    if tf_arb:
-        log(f"  TF-IDF при C={P.C_ARBITRARY:g} (наугад): macro-F1 "
-            f"{tf_arb['macro_f1']:.4f}")
-    log(f"  TF-IDF при C={tf_search['C']:g} (по валидации): macro-F1 "
-        f"{tf['macro_f1']:.4f}, accuracy {tf['accuracy']:.4f}  "
-        f"({time.time() - t0:.0f} с)")
+    if a.baselines_from:
+        # Переиспользование допустимо только при совпадении выборок: базовая
+        # линия, посчитанная на другом разбиении, сравнению не подлежит.
+        prev = json.loads(Path(a.baselines_from).read_text(encoding="utf-8"))
+        prev_rows = prev["baselines"]["most_frequent"]["n"]
+        if prev["classes"] != len(names) or prev_rows != len(parts["test"]):
+            raise ValueError(
+                f"{a.baselines_from}: там {prev['classes']} классов и "
+                f"{prev_rows} строк теста, здесь {len(names)} и "
+                f"{len(parts['test'])} — базовые линии несопоставимы")
+        if bool(prev.get("shuffle_labels")) != a.shuffle_labels:
+            raise ValueError(f"{a.baselines_from}: другой режим меток")
+        b = prev["baselines"]
+        mf, tf, tf_arb, tf_search = (b["most_frequent"], b["tfidf_logreg"],
+                                     b["tfidf_logreg_arbitrary_C"],
+                                     b["tfidf_search"])
+        log(f"  взяты из {a.baselines_from} (прогон {prev['run']}), "
+            f"не пересчитывались")
+        log(f"  самый частый класс: macro-F1 {mf['macro_f1']:.4f}")
+        log(f"  TF-IDF при C={tf_search['C']:g}: macro-F1 {tf['macro_f1']:.4f}, "
+            f"accuracy {tf['accuracy']:.4f}")
+    else:
+        mf_pred, mf_label = P.baseline_most_frequent(parts["train"],
+                                                     parts["test"], lmap)
+        mf = P.evaluate(y["test"], mf_pred, names)
+        log(f"  самый частый класс («{mf_label}»): macro-F1 {mf['macro_f1']:.4f}, "
+            f"accuracy {mf['accuracy']:.4f}")
+        log("  TF-IDF + логрег, подбор C по валидации:")
+        tfidf_pred, arb_pred, tf_search = P.baseline_tfidf(
+            parts["train"], parts["validation"], parts["test"], lmap, a.seed, log)
+        tf = P.evaluate(y["test"], tfidf_pred, names)
+        tf_arb = P.evaluate(y["test"], arb_pred, names) if arb_pred is not None \
+            else None
+        if tf_arb:
+            log(f"  TF-IDF при C={P.C_ARBITRARY:g} (наугад): macro-F1 "
+                f"{tf_arb['macro_f1']:.4f}")
+        log(f"  TF-IDF при C={tf_search['C']:g} (по валидации): macro-F1 "
+            f"{tf['macro_f1']:.4f}, accuracy {tf['accuracy']:.4f}  "
+            f"({time.time() - t0:.0f} с)")
 
     metrics = {"run": run, "model": a.model, "csv": a.csv,
                "shuffle_labels": a.shuffle_labels,
@@ -190,60 +226,92 @@ def main():
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
     log("\nОБУЧЕНИЕ")
     tok = AutoTokenizer.from_pretrained(a.model)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        a.model, num_labels=len(names)).to(device)
-    n_par = sum(p.numel() for p in model.parameters())
-    log(f"  параметров {n_par / 1e6:.1f} млн · max_len {a.max_len} · "
-        f"батч {a.batch_size} · lr {a.lr} · эпох {a.epochs}")
-
     loaders = {k: DataLoader(encode(tok, parts[k].text, y[k], a.max_len),
                              batch_size=a.batch_size, shuffle=(k == "train"))
                for k in parts}
-    total = len(loaders["train"]) * a.epochs
-    opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
-    sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lr_lambda(total, int(0.1 * total)))
 
-    log(f"  шагов всего {total}")
-    # Лучшая эпоха выбирается ПО ВАЛИДАЦИИ, а не берётся последняя: val
-    # macro-F1 выходит на плато и дальше колеблется, пока train loss падает
-    # к нулю. Сохранять последнюю — значит отдавать в артефакт переобученную
-    # модель по чистой случайности того, где остановили счётчик эпох.
-    best = {"epoch": 0, "macro_f1": -1.0, "state": None}
-    history, step, t_start = [], 0, time.time()
-    for ep in range(1, a.epochs + 1):
-        model.train()
-        run_loss, seen = 0.0, 0
-        for ids, mask, lab in loaders["train"]:
-            out = model(input_ids=ids.to(device), attention_mask=mask.to(device),
-                        labels=lab.to(device))
-            out.loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
-            sched.step()
-            opt.zero_grad()
-            run_loss += out.loss.detach().item() * len(lab)
-            seen += len(lab)
-            step += 1
-            if step == SPEED_AFTER:
-                sp = SPEED_AFTER / (time.time() - t_start)
-                log(f"  скорость на {SPEED_AFTER} шагах: {sp:.1f} шаг/с — "
-                    f"оценка всего обучения {total / sp / 60:.1f} мин")
-        vp, _ = predict(model, loaders["validation"], device)
-        vm = P.evaluate(y["validation"], vp, names)
-        history.append({"epoch": ep, "train_loss": run_loss / seen,
-                        "val_macro_f1": vm["macro_f1"],
-                        "val_accuracy": vm["accuracy"]})
-        mark = ""
-        if vm["macro_f1"] > best["macro_f1"]:
-            best = {"epoch": ep, "macro_f1": vm["macro_f1"],
-                    "state": {k: v.detach().to("cpu").clone()
-                              for k, v in model.state_dict().items()}}
-            mark = "  ← лучшая"
-        log(f"  эпоха {ep}/{a.epochs}: loss {run_loss / seen:.4f} · "
-            f"val macro-F1 {vm['macro_f1']:.4f} · val acc {vm['accuracy']:.4f} · "
-            f"{time.time() - t_start:.0f} с{mark}")
-    train_sec = time.time() - t_start
+    def fit(lr, epochs, quiet=False):
+        """Одно обучение с нуля. Возвращает модель, историю и лучшую эпоху.
+
+        Лучшая эпоха выбирается ПО ВАЛИДАЦИИ, а не берётся последняя: val
+        macro-F1 выходит на плато и дальше колеблется, пока train loss падает
+        к нулю. Сохранять последнюю — значит отдавать в артефакт переобученную
+        модель по чистой случайности того, где остановили счётчик эпох."""
+        set_seed(a.seed)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            a.model, num_labels=len(names)).to(device)
+        total = len(loaders["train"]) * epochs
+        opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+        sched = torch.optim.lr_scheduler.LambdaLR(
+            opt, lr_lambda(total, int(0.1 * total)))
+        best = {"epoch": 0, "macro_f1": -1.0, "state": None}
+        history, step, t0f = [], 0, time.time()
+        for ep in range(1, epochs + 1):
+            model.train()
+            run_loss, seen = 0.0, 0
+            for ids, mask, lab in loaders["train"]:
+                out = model(input_ids=ids.to(device),
+                            attention_mask=mask.to(device), labels=lab.to(device))
+                out.loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                opt.step()
+                sched.step()
+                opt.zero_grad()
+                run_loss += out.loss.detach().item() * len(lab)
+                seen += len(lab)
+                step += 1
+                if step == SPEED_AFTER and not quiet:
+                    sp = SPEED_AFTER / (time.time() - t0f)
+                    log(f"  скорость на {SPEED_AFTER} шагах: {sp:.1f} шаг/с — "
+                        f"оценка всего обучения {total / sp / 60:.1f} мин")
+            vp, _ = predict(model, loaders["validation"], device)
+            vm = P.evaluate(y["validation"], vp, names)
+            history.append({"epoch": ep, "train_loss": run_loss / seen,
+                            "val_macro_f1": vm["macro_f1"],
+                            "val_accuracy": vm["accuracy"]})
+            mark = ""
+            if vm["macro_f1"] > best["macro_f1"]:
+                best = {"epoch": ep, "macro_f1": vm["macro_f1"],
+                        "state": {k: v.detach().to("cpu").clone()
+                                  for k, v in model.state_dict().items()}}
+                mark = "  ← лучшая"
+            log(f"  {'проба ' if quiet else ''}эпоха {ep}/{epochs}: "
+                f"loss {run_loss / seen:.4f} · val macro-F1 {vm['macro_f1']:.4f} "
+                f"· val acc {vm['accuracy']:.4f} · {time.time() - t0f:.0f} с{mark}")
+        return model, history, best, time.time() - t0f
+
+    lr_search = []
+    PARTIAL = Path("analysis/finetune_logs") / f"{run}-lr_search.json"
+    PARTIAL.parent.mkdir(parents=True, exist_ok=True)
+    if a.lr_grid:
+        # Короткие пробы на каждом lr, выбор по валидации. Тест не участвует.
+        grid = [float(x) for x in a.lr_grid.split(",")]
+        log(f"  подбор lr по валидации: {a.lr_probe_epochs} эпох на каждое "
+            f"из {len(grid)} значений")
+        def probe(lr, note=""):
+            log(f"  -- lr {lr:g}{note}")
+            _, _, pb, sec = fit(lr, a.lr_probe_epochs, quiet=True)
+            lr_search.append({"lr": lr, "val_macro_f1": pb["macro_f1"],
+                              "probe_epochs": a.lr_probe_epochs,
+                              "seconds": round(sec, 1)})
+            # Промежуточный итог на диск после каждой пробы: прогон долгий,
+            # и обрыв не должен уносить уже посчитанное.
+            PARTIAL.write_text(json.dumps(lr_search, indent=2), encoding="utf-8")
+
+        for lr in grid:
+            probe(lr)
+        top = max(lr_search, key=lambda r: r["val_macro_f1"])["lr"]
+        if a.lr_edge and top == max(grid):
+            log(f"  лучший lr {top:g} — на краю сетки, сетка может не накрывать "
+                f"оптимум")
+            probe(a.lr_edge, " (расширение сетки за край)")
+        a.lr = max(lr_search, key=lambda r: r["val_macro_f1"])["lr"]
+        log(f"  выбрано lr={a.lr:g} по валидации (тест не участвовал)")
+
+    model, history, best, train_sec = fit(a.lr, a.epochs)
+    n_par = sum(p.numel() for p in model.parameters())
+    log(f"  параметров {n_par / 1e6:.1f} млн · max_len {a.max_len} · "
+        f"батч {a.batch_size} · lr {a.lr} · эпох {a.epochs}")
     model.load_state_dict(best["state"])
     model.to(device)
     log(f"  восстановлена эпоха {best['epoch']} из {a.epochs} "
@@ -266,7 +334,8 @@ def main():
 
     metrics.update({"model_params": int(n_par), "device": device.type,
                     "history": history, "test": tm,
-                    "best_epoch": best["epoch"],
+                    "best_epoch": best["epoch"], "lr": a.lr,
+                    "lr_search": lr_search,
                     "best_val_macro_f1": best["macro_f1"],
                     "last_val_macro_f1": history[-1]["val_macro_f1"],
                     "train_seconds": round(train_sec, 1),
@@ -335,8 +404,10 @@ def write_report(path, run, a, names, m, pc, conf, info):
           f"| {tf['accuracy']:.4f} |",
           f"| **Дообученная модель** | **{t['macro_f1']:.4f}** | "
           f"{t['micro_f1']:.4f} | {t['accuracy']:.4f} |",
-          f"\nПрирост над TF-IDF {m['gain_over_tfidf']:+.4f} macro-F1, "
-          f"над частым классом {m['gain_over_most_frequent']:+.4f}.\n",
+          f"\nРазница с TF-IDF {m['gain_over_tfidf']:+.4f} macro-F1, "
+          f"с частым классом {m['gain_over_most_frequent']:+.4f}. Это один "
+          f"прогон: сравнивать с разбросом по seed (раздел 5k CLAUDE.md), "
+          f"а не с нулём.\n",
           "Базовой линии дано то же усилие, что модели: `C` подобран по "
           "валидации, тест в подборе не участвовал.\n",
           "| C | val macro-F1 |", "|---|---|"]
@@ -346,6 +417,15 @@ def write_report(path, run, a, names, m, pc, conf, info):
         L += [f"\nПри взятом наугад `C={arb_c:g}` тест давал "
               f"{arb['macro_f1']:.4f} macro-F1 — разница с подобранным "
               f"{t_tf['macro_f1'] - arb['macro_f1']:+.4f}.\n"]
+    if m.get("lr_search"):
+        L += ["\n## Подбор learning rate по валидации\n",
+              f"Короткие пробы по {m['lr_search'][0]['probe_epochs']} эпохи "
+              f"на каждое значение, тест не участвовал.\n",
+              "Пробы по три эпохи смещают выбор в пользу больших lr, потому "
+              "что малым нужно больше шагов.\n",
+              "| lr | val macro-F1 |", "|---|---|"]
+        L += [f"| {g['lr']:g}{' ← выбрано' if g['lr'] == m['lr'] else ''} "
+              f"| {g['val_macro_f1']:.4f} |" for g in m["lr_search"]]
     L += ["\n## По эпохам\n",
           f"Лучшая эпоха выбрана по валидации: **{m['best_epoch']}** из "
           f"{a.epochs} (val macro-F1 {m['best_val_macro_f1']:.4f}); последняя "
