@@ -110,7 +110,20 @@ def split_data(df, mode, seed, log, val_size=0.15, test_size=0.15):
     if df.split.notna().all() and df.split.nunique() > 1:
         log(f"  разбиение: собственное разбиение корпуса "
             f"({', '.join(sorted(df.split.unique()))})")
-        return {s: g.reset_index(drop=True) for s, g in df.groupby("split")}
+        parts = {s: g.reset_index(drop=True) for s, g in df.groupby("split")}
+        if "validation" not in parts:
+            # У корпуса может не быть валидации — у ГРНТИ только train и test.
+            # Отрезаем её от TRAIN, а не от теста: тест остаётся таким, каким
+            # его опубликовал автор, и сравним с чужими числами.
+            tr, val = train_test_split(parts["train"], test_size=val_size,
+                                       random_state=seed,
+                                       stratify=parts["train"].label)
+            parts["train"] = tr.reset_index(drop=True)
+            parts["validation"] = val.reset_index(drop=True)
+            log(f"  валидации в корпусе нет — отрезано {len(val)} строк "
+                f"({val_size:.0%}) от train стратифицированно, seed {seed}; "
+                f"тест не тронут")
+        return parts
 
     if mode == "temporal":
         if df.time.isna().any():
