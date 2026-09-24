@@ -33,15 +33,16 @@ COMPARE = (("label_probs", "опора на метках"), ("e5_frozen", "e5 б
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--baselines", required=True)
-    ap.add_argument("--runs", required=True, help="glob по metrics.json прогонов seed")
+    ap.add_argument("--runs", required=True, nargs="+",
+                    help="metrics.json прогонов seed: пути или маски")
     ap.add_argument("--anchor-seed", type=int, default=42)
     ap.add_argument("--n-boot", type=int, default=1000)
     a = ap.parse_args()
 
     base = json.loads(Path(a.baselines).read_text(encoding="utf-8"))
     bq = np.load(base["perquery"], allow_pickle=True)
-    runs = [json.loads(Path(p).read_text(encoding="utf-8"))
-            for p in sorted(glob.glob(a.runs))]
+    paths = sorted({p for pat in a.runs for p in glob.glob(pat)})
+    runs = [json.loads(Path(p).read_text(encoding="utf-8")) for p in paths]
     runs = [r for r in runs if r.get("kind") == "finetuned"]
     seeds = sorted(r["seed"] for r in runs)
     if len(seeds) != len(set(seeds)):
