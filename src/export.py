@@ -29,6 +29,9 @@ LIMIT_ANCHORS = (
 PII_COLUMNS = ("full_name", "applicant_number", "operator", "xcoordinate",
                "ycoordinate", "appeal_address", "street", "com_exp", "result",
                "request_subject")
+# Подписи классов в выгрузке — те же, что на экране витрины.
+CLASS_COLS = {"problem": "жалобы на городские проблемы", "info": "справочные звонки",
+              "system": "служебные записи"}
 PHONE = re.compile(r"\+?7[\s\-(]*\d{3}[\s\-)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}")
 LONG_DIGITS = re.compile(r"\d{12}")
 ADDR = re.compile(r"(?:\bдом\b.*\bкв\b)|(?:^|\s)ул\.|(?:^|\s)мкр\b", re.I)
@@ -63,7 +66,8 @@ def limits_block(regions, period, filters=(), path=CLAUDE_MD):
         f"Период: {lo:%d.%m.%Y} — {hi:%d.%m.%Y}.",
         *[f"Фильтр: {f}" for f in filters],
         *read_limits(path),
-        f"Выгружено {date.today():%d.%m.%Y}. Источник — data/unified.parquet. "
+        f"Выгружено {date.today():%d.%m.%Y}. Источник — сводная таблица обращений "
+        f"109 (файл data/unified.parquet). "
         f"Числа не пересчитывались: выгружено то же, что показано на экране.",
     ]
 
@@ -73,15 +77,16 @@ def sheet_regions(df):
     """Сводка по регионам: всего и по классам обращения."""
     g = (df.pivot_table(index="region", columns="appeal_class", values="created_at",
                         aggfunc="size", fill_value=0)
-           .rename(columns={"problem": "городские проблемы", "info": "справочные",
-                            "system": "служебные"}))
-    for c in ("городские проблемы", "справочные", "служебные"):
+           .rename(columns=CLASS_COLS))
+    cols = list(CLASS_COLS.values())
+    for c in cols:
         if c not in g.columns:
             g[c] = 0
-    g = g[["городские проблемы", "справочные", "служебные"]]
+    g = g[cols]
     g.insert(0, "всего", g.sum(axis=1))
-    g["доля не-problem, %"] = ((g["всего"] - g["городские проблемы"])
-                               / g["всего"].where(g["всего"] > 0) * 100).round(1)
+    # доля info + system: «не жалобы» — подпись для руководителя, смысл прежний
+    g["не жалобы, % от всех"] = ((g["всего"] - g[CLASS_COLS["problem"]])
+                                 / g["всего"].where(g["всего"] > 0) * 100).round(1)
     return g.sort_values("всего", ascending=False).reset_index().rename(
         columns={"region": "регион"})
 
@@ -102,8 +107,8 @@ def export_frames(df, events):
     Excel и PDF обязаны строиться из одних и тех же таблиц, иначе проверка одного
     файла ничего не говорит про другой."""
     return {"Сводка по регионам": sheet_regions(df),
-            "Структура тем": sheet_topics(df),
-            "События": events}
+            "Темы жалоб": sheet_topics(df),
+            "Всплески жалоб": events}
 
 
 # ---------------------------------------------------------------- Excel
@@ -117,7 +122,7 @@ def build_excel(df, events, regions, period, filters=(), path=CLAUDE_MD):
         for name, frame in export_frames(df, events).items():
             frame.to_excel(w, sheet_name=name, index=False)
         for name, width in (("Ограничения", 120), ("Сводка по регионам", 22),
-                            ("Структура тем", 34), ("События", 30)):
+                            ("Темы жалоб", 34), ("Всплески жалоб", 30)):
             ws = w.book[name]
             ws.column_dimensions["A"].width = width
     return buf.getvalue()
@@ -182,7 +187,7 @@ def build_pdf(df, events, regions, period, figures=(), filters=(), path=CLAUDE_M
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
                             leftMargin=14 * mm, rightMargin=14 * mm,
                             topMargin=12 * mm, bottomMargin=12 * mm,
-                            title="Обращения 109 — витрина руководителя")
+                            title="Обращения в 109 — обзор для руководителя")
     base = getSampleStyleSheet()["Normal"]
     h1 = ParagraphStyle("h1", parent=base, fontName=fonts["bold"], fontSize=16,
                         leading=20, spaceAfter=8)
@@ -191,31 +196,32 @@ def build_pdf(df, events, regions, period, figures=(), filters=(), path=CLAUDE_M
     txt = ParagraphStyle("txt", parent=base, fontName=fonts["font"], fontSize=8.5,
                          leading=12)
 
-    story = [Paragraph("Обращения 109 — витрина руководителя", h1),
+    story = [Paragraph("Обращения в 109 — обзор для руководителя", h1),
              Paragraph("Ограничения выгрузки", h2)]
     for line in limits_block(regions, period, filters, path):
         story.append(Paragraph("— " + line, txt))
 
     frames = export_frames(df, events)
-    reg, top = frames["Сводка по регионам"], frames["Структура тем"]
+    reg, top = frames["Сводка по регионам"], frames["Темы жалоб"]
     story += [Paragraph("Сводка по регионам", h2)]
     story.append(_pdf_table([list(reg.columns)] + reg.astype(str).values.tolist(), fonts))
 
-    story += [Paragraph("Структура тем — городские проблемы", h2)]
+    story += [Paragraph("Темы жалоб на городские проблемы", h2)]
     story.append(_pdf_table([list(top.columns)] + top.astype(str).values.tolist(), fonts))
 
-    story += [PageBreak(), Paragraph(f"События детектора — {len(events)}", h2)]
+    story += [PageBreak(), Paragraph(f"Всплески жалоб — {len(events)}", h2)]
     if len(events):
         ev = events.head(60)
         story.append(_pdf_table([list(ev.columns)] + ev.astype(str).values.tolist(), fonts))
         if len(events) > len(ev):
             story.append(Spacer(1, 4))
             story.append(Paragraph(
-                f"Показаны первые {len(ev)} событий из {len(events)} в порядке "
-                f"сортировки на экране. Полный список — на листе «События» "
+                f"Показаны первые {len(ev)} всплесков из {len(events)} в порядке "
+                f"сортировки на экране. Полный список — на листе «Всплески жалоб» "
                 f"в Excel-выгрузке.", txt))
     else:
-        story.append(Paragraph("Под выбранные фильтры не попало ни одного события.", txt))
+        story.append(Paragraph("Под выбранные фильтры не попало ни одного всплеска.",
+                               txt))
 
     for title, fig in figures:
         png = _fig_png(fig)

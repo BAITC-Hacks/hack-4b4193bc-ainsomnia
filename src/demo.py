@@ -379,13 +379,12 @@ def step_no_lookahead(sl, first_signal, mismatches):
 
 def step_feed(sl, blocked, pause):
     head("ШАГ 4а. Витрина: лента событий")
-    from src.dashboard import feed_view
+    from src.dashboard import FEED_NAMES, TYPE_RU, feed_view
     det = detect(sl, blocked=blocked)
     ev = with_duration(det)
     ev = classify_seasonal(ev, det, {REGION: (sl["день"].min(), sl["день"].max())},
                            [REGION])
-    ev["тип"] = ["без типа" if (x is None or pd.isna(x)) else
-                 {"seasonal": "сезонный", "anomaly": "аномалия"}[x]
+    ev["тип"] = [TYPE_RU["без типа"] if (x is None or pd.isna(x)) else TYPE_RU[x]
                  for x in ev["spike_type"]]
     win = ev[(ev["дата"] >= DAY_FROM) & (ev["дата"] <= DAY_TO)]
     view = feed_view(win.sort_values("прирост", ascending=False))
@@ -393,18 +392,18 @@ def step_feed(sl, blocked, pause):
     # короче года, прошлых лет для сравнения нет вовсе, и тип не определён ни у
     # одного события — колонка была бы столбцом «без типа». В витрине она
     # остаётся: там под неё есть блок «Как это считается». См. 5f CLAUDE.md.
-    untyped = int(sum(t == "без типа" for t in win["тип"]))
-    shown_cols = [c for c in view.columns if c != "тип"]
+    untyped = int(sum(t == TYPE_RU["без типа"] for t in win["тип"]))
+    shown_cols = [c for c in view.columns if c != FEED_NAMES["тип"]]
     print(view[shown_cols].to_string(index=False))
     print(f"\n  {DIM}Та же таблица и в том же порядке, что в витрине: "
           f"feed_view() из src/dashboard.py{OFF}")
-    print(f"  {DIM}Колонка типа события (сезонный / аномалия) скрыта: выгрузка "
+    print(f"  {DIM}Колонка «{FEED_NAMES['тип']}» (сезонное / необычное) скрыта: выгрузка "
           f"региона короче года,\n  прошлых лет для сравнения нет, и тип не определён "
           f"у {untyped} событий окна из {len(win)}.\n  В витрине колонка остаётся — "
           f"там есть блок «Как это считается». Раздел 5f.{OFF}")
     print(f"  {DIM}Витрину целиком в терминале показать нельзя — это веб-страница. "
           f"Запуск:{OFF}")
-    print(f"  {BOLD}.venv/bin/streamlit run src/dashboard.py{OFF}")
+    print(f"  {BOLD}PYTHONPATH=. .venv/bin/streamlit run src/dashboard.py{OFF}")
     wait(pause * 4)
     return view
 
@@ -499,13 +498,14 @@ def main():
     print(f"  не различают даже при полной заполненности — нужен адрес или "
           f"идентификатор заявителя.")
     print(f"  {BOLD}Модуль 3 — витрина и детектор:{OFF} ниже.\n")
-    top = view.sort_values("прирост к фону", ascending=False).iloc[0]
+    from src.dashboard import FEED_NAMES as F
+    top = view.sort_values(F["прирост"], ascending=False).iloc[0]
     print(f"  Обращения прочитаны из выгрузки, тема и класс присвоены справочником,")
     print(f"  первый сигнал окна — {BOLD}{first:%d.%m.%Y}{OFF}, главное событие — "
-          f"{BOLD}{top['начало']:%d.%m.%Y}{OFF}: "
-          f"{int(top['обращений в пике'])} обращений")
-    print(f"  при фоне {top['фон на старте']:.1f}, кратность "
-          f"×{top['кратность к фону']:.1f}. Проиграно "
+          f"{BOLD}{top[F['дата']]:%d.%m.%Y}{OFF}: "
+          f"{int(top[F['обращений']])} обращений")
+    print(f"  при фоне {top[F['медиана окна']]:.1f}, кратность "
+          f"×{top[F['кратность']]:.1f}. Проиграно "
           f"{len(pd.date_range(DAY_FROM, DAY_TO))} дней,")
     print(f"  расхождений с полным прогоном {mism}, отчёт собран"
           + ("" if a.no_export else f", ПДн в нём {'нет' if clean else 'НАЙДЕНЫ'}"))
@@ -523,7 +523,7 @@ def main():
     print(f"    55 строк на 1 063 216. Это ограничение данных, а не реализации.")
     print(f"\n  {DIM}Что показать в терминале нельзя, и почему:{OFF}")
     print(f"  {DIM}  · витрина — веб-страница; данные её ленты выведены выше,{OFF}")
-    print(f"  {DIM}    запуск: .venv/bin/streamlit run src/dashboard.py{OFF}")
+    print(f"  {DIM}    запуск: PYTHONPATH=. .venv/bin/streamlit run src/dashboard.py{OFF}")
     print(f"  {DIM}  · сборка канона адаптером — пакетный шаг по файлу целиком,{OFF}")
     print(f"  {DIM}    поштучно не проигрывается; заглушку не ставили{OFF}\n")
     return 0
