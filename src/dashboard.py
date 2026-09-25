@@ -14,6 +14,7 @@
 Функции fig_* не зависят от streamlit — их можно вызвать отдельно, чтобы
 отрендерить графики в файл и проверить, что отрисовалось.
 """
+import html
 from pathlib import Path
 
 import pandas as pd
@@ -21,7 +22,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from src.export import build_excel, build_pdf
-from src.risk_view import risk_section
+from src.risk_view import METRICS, headline, risk_section
 from src.spikes import (GAP_MIN, SEASONAL_REGIONS, classify_seasonal, daily_counts,
                         detect, gap_days, with_duration)
 
@@ -231,7 +232,7 @@ def event_caption(r):
 
 def events_section(st, df):
     """Лента всплесков с фильтрами, секцией «требует внимания» и разбором события."""
-    st.subheader("Всплески жалоб")
+    st.subheader("Всплески жалоб", anchor="vspleski")
     st.markdown(
         "**Что это значит.** Всплеск — дни, когда жалоб на одну тему в одном регионе "
         "стало резко больше, чем обычно бывало в предыдущие четыре недели. Всплеск "
@@ -310,6 +311,9 @@ def events_section(st, df):
 
     # ---- требует внимания
     fresh = ev[ev["новое"]]
+    # то же, что видно в секции, — для карточек шапки (они рисуются выше, в контейнер)
+    info = {"fresh": fresh, "last_day": last_day, "new_days": int(new_days),
+            "order": order}
     st.markdown(f"#### Требует внимания — {len(fresh):,}".replace(",", " "))
     st.caption(
         f"Всплески за последние {int(new_days)} дней данных. Данные регионов "
@@ -332,7 +336,7 @@ def events_section(st, df):
                "отметка ненадёжна и может смениться у соседних дней одного эпизода.")
     if ev.empty:
         st.warning("Под выбранные фильтры не попало ни одного всплеска.")
-        return feed_view(ev), descr
+        return feed_view(ev), descr, info
     shown = feed_view(ev)
     sel = st.dataframe(shown, width="stretch", hide_index=True,
                        on_select="rerun", selection_mode="single-row", key="ev_table")
@@ -340,12 +344,81 @@ def events_section(st, df):
     if not rows:
         st.caption("Нажмите на строку — ниже появится график жалоб по дням за две "
                    "недели до и после всплеска.")
-        return shown, descr
+        return shown, descr, info
     r = ev.iloc[rows[0]]
     st.plotly_chart(fig_event_series(daily, det, r["регион"], r["тема"], r["дата"]),
                     width="stretch")
     st.caption(event_caption(r))
-    return shown, descr
+    return shown, descr, info
+
+
+# ---------------------------------------------------------------- шапка
+def _times(x):
+    """42.0 -> «42», 8.2 -> «8.2»: только запись числа, значение то же."""
+    return f"{x:.1f}".rstrip("0").rstrip(".")
+
+
+def _card(col, label, value, note, link=None, size="2.2rem"):
+    """Карточка шапки: подпись, крупное значение, пояснение, ссылка вниз."""
+    box = col.container(border=True)
+    box.markdown(
+        f"<div style='font-size:0.95rem;opacity:0.75'>{html.escape(label)}</div>"
+        f"<div style='font-size:{size};font-weight:700;line-height:1.25'>"
+        f"{html.escape(value)}</div>", unsafe_allow_html=True)
+    box.caption(note)
+    if link:
+        box.markdown(link)
+
+
+def top_cards(st, df, info, rk):
+    """«Что сейчас важно»: три карточки и строка о том, что это за система.
+
+    Числа не считаются заново: первая и вторая карточки — это секция «Требует
+    внимания» при текущих фильтрах ленты, третья — порог модели из metrics.json."""
+    fresh, last_day = info["fresh"], info["last_day"]
+    c = st.columns(3)
+    by_reg = fresh["регион"].str.replace(" область", "").value_counts()
+    first, last = last_day.idxmin(), last_day.idxmax()
+    _card(c[0], "Всплесков требуют внимания", f"{len(fresh):,}".replace(",", " "),
+          (f"За последние {info['new_days']} дней данных каждого региона"
+           + (": " + ", ".join(f"{r} — {n}" for r, n in by_reg.items()) if len(fresh)
+              else "") + ". Даты у регионов разные, потому что выгрузка историческая "
+           f"и заканчивается в разное время: от {last_day[first]:%d.%m.%Y} "
+           f"({first.replace(' область', '')}) до {last_day[last]:%d.%m.%Y} "
+           f"({last.replace(' область', '')})."),
+          "[Открыть список ↓](#vspleski)")
+    if fresh.empty:
+        _card(c[1], "Самый сильный из них", "Свежих всплесков нет",
+              "При выбранных фильтрах ленты за последние дни всплесков не было.",
+              size="1.4rem")
+    else:
+        r = fresh.iloc[0]
+        _card(c[1], "Самый сильный из них",
+              f"{r['регион'].replace(' область', '')}: {r['тема']} — жалоб в "
+              f"{_times(r['кратность'])} раза больше обычного",
+              f"День пика {r['пик']:%d.%m.%Y}: {int(r['обращений'])} жалоб при обычных "
+              f"~{r['медиана окна']:.1f} в день. Характер — {r['тип']}. Первый в "
+              f"списке «Требует внимания», порядок — {info['order']}.",
+              "[Открыть в ленте ↓](#vspleski)", size="1.4rem")
+    if rk is None:
+        _card(c[2], "Под риском срыва срока — Караганда", "нет данных",
+              "Нет готовых файлов модели: их создаёт train.py.")
+    else:
+        _card(c[2], "Под риском срыва срока — только Караганда",
+              f"{rk['flagged']:,} из {rk['test_n']:,}".replace(",", " "),
+              f"Обращения, которые модель отметила как рискующие обрабатываться "
+              f"дольше {rk['sla_days']} суток (срок — допущение команды). Это не "
+              f"текущая очередь, а проверочный период модели — обращения Карагандинской "
+              f"области с {pd.Timestamp(rk['cutoff']):%d.%m.%Y}, новее данных нет. Из "
+              f"отмеченных действительно просрочены {rk['flag_precision']:.0%}, при "
+              f"выборе наугад было бы {rk['base']:.0%}.",
+              "[К блоку риска ↓](#risk)")
+    names = ", ".join(r.replace(" область", "") for r in sorted(df["region"].unique()))
+    st.markdown(
+        f"Обзор обращений граждан в единый контакт-центр 109: всплески жалоб, риск "
+        f"просрочки, состав потока. Данные — историческая выгрузка по "
+        f"{df['region'].nunique()} областям ({names}), у каждой свой период; в сумме "
+        f"— с {df.created_at.min():%m.%Y} по {df.created_at.max():%m.%Y}.")
 
 
 # ---------------------------------------------------------------- выгрузка
@@ -367,8 +440,8 @@ def export_section(st, df, flt, events, sel_reg, sel_topic, all_topics, lo, hi, 
             "`info`, `system`), темы и события — только по `problem`. Текст "
             "ограничений берётся из CLAUDE.md, раздел 5d, по якорным фразам "
             "(`LIMIT_ANCHORS` в `src/export.py`), а не пишется здесь заново; "
-            "поэтому вторая оговорка в файле содержит техническое условие "
-            "`appeal_class == 'problem'`. Excel и PDF строятся из одной функции "
+            "править формулировку — только в самом 5d. Excel и PDF строятся из одной "
+            "функции "
             "`export_frames`; готовый Excel проверяется на ПДн `check_export_pii`.")
     period = (lo, hi - pd.Timedelta(days=1))
     c = st.columns(2)
@@ -422,42 +495,24 @@ def main():
 
     df = st.cache_data(load_data)()
 
-    # ---------------- блок 1: сводка
-    st.subheader("Сводка")
-    vc = df["appeal_class"].value_counts()
-    c = st.columns(6)
-    c[0].metric("Всего обращений", f"{len(df):,}".replace(",", " "))
-    for i, k in enumerate(("problem", "info", "system"), start=1):
-        c[i].metric(CLASS_RU[k], f"{vc.get(k, 0):,}".replace(",", " "),
-                    f"{100*vc.get(k, 0)/len(df):.1f}% всех обращений",
-                    delta_color="off")
-    c[4].metric("Регионов", df["region"].nunique())
-    c[5].metric("Период", f"{df.created_at.min():%m.%Y} — {df.created_at.max():%m.%Y}")
-    st.markdown(
-        f"**Что это значит.** Работу городским службам дают только жалобы на "
-        f"городские проблемы — {100*vc.get('problem', 0)/len(df):.1f}% всех "
-        f"обращений. Справочные звонки — просьбы о справке: контакты служб, "
-        f"справочная информация, выборы, карантин. Служебные записи — сброшенные "
-        f"звонки, переадресации на 102, 103, 112, благодарности. Всплески, динамика и "
-        f"темы ниже считаются только по жалобам. Период у регионов разный: Павлодар — "
-        f"с 2020 года, Акмола — только с июля 2025.")
-    with st.expander("Как это считается", expanded=False):
-        st.markdown(
-            "Класс обращения — колонка `appeal_class`: `problem` (жалобы на "
-            "городские проблемы), `info` (справочные), `system` (служебные). "
-            "Присваивается по теме из справочника региона правилами "
-            "`src/topic_mapping.py`, раздел 5e CLAUDE.md. Регионы записывают разное: "
-            "одни заводят карточку только на проблему, другие — на любой звонок "
-            "(раздел 5d). Окна данных по регионам — раздел 5c.")
-
+    # Порядок — «что случилось → почему → что дальше». Шапка стоит первой, но
+    # заполняется после ленты: её числа — это секция «Требует внимания» при
+    # текущих фильтрах ленты, а фильтры ленты рисуются в самой ленте.
+    # ---------------- 1. что сейчас важно
+    st.subheader("Что сейчас важно")
+    head = st.container()
     st.divider()
 
-    # ---------------- блок 1б: события детектора
-    events, ev_descr = events_section(st, df)
-
+    # ---------------- 2. всплески
+    events, ev_descr, info = events_section(st, df)
+    top_cards(head, df, info, headline() if METRICS.exists() else None)
     st.divider()
 
-    # ---------------- блок 2: структура потока
+    # ---------------- 3. риск просрочки (только Караганда, из reports/)
+    risk_section(st)
+    st.divider()
+
+    # ---------------- 4. структура потока
     st.subheader("Из чего состоит поток обращений по регионам")
     st.plotly_chart(fig_structure(df), width="stretch")
     st.markdown(
@@ -473,12 +528,14 @@ def main():
             "крайние значения: Туркестан 0.1748%, ВКО 67.8408% — разброс в 388 раз "
             "(по округлённым 0.2 и 67.8 выходит 339, так не считать). Разбор по "
             "регионам — раздел 5d CLAUDE.md.")
-
     st.divider()
 
-    # ---------------- общие фильтры для блоков 3 и 4
+    # ---------------- 5. темы; фильтры здесь же — они действуют на темы,
+    # динамику и выгрузку
     problem = df[df.appeal_class == "problem"]
-    st.subheader("Фильтры для графиков ниже")
+    title = st.empty()                 # заголовок зависит от выбранного региона
+    st.markdown("**Фильтры** — действуют на темы, динамику по месяцам и выгрузку "
+                "отчётов.")
     regions = sorted(problem["region"].unique())
     topics = sorted(problem["topic"].unique())
     f = st.columns([2, 2, 2])
@@ -491,7 +548,12 @@ def main():
     sel_period = f[1].date_input("Период", (dmin, dmax),
                                  min_value=dmin, max_value=dmax)
     sel_topic = f[2].multiselect("Тема", topics, default=topics)
+    title.subheader("О чём жалуются" + (f" — {sel_reg[0]}" if len(sel_reg) == 1 else ""))
 
+    # Пока в календаре выбрана только начальная дата, date_input отдаёт одну
+    # дату. Раньше a и b тогда не определялись, и выгрузка падала с
+    # UnboundLocalError (найдено 2026-09-25) — до выбора второй даты берём весь период.
+    a, b = pd.Timestamp(dmin), pd.Timestamp(dmax) + pd.Timedelta(days=1)
     flt = problem[problem.region.isin(sel_reg) & problem.topic.isin(sel_topic)]
     if isinstance(sel_period, (tuple, list)) and len(sel_period) == 2:
         a, b = (pd.Timestamp(sel_period[0]),
@@ -500,38 +562,11 @@ def main():
 
     st.caption(f"Жалоб на городские проблемы под фильтром: {len(flt):,}. "
                .replace(",", " ")
-               + "Справочные звонки и служебные записи в графики ниже не входят.")
-
+               + "Справочные звонки и служебные записи сюда не входят.")
     if flt.empty:
         st.warning("Под выбранные фильтры не попало ни одного обращения.")
-        st.stop()
-
-    st.divider()
-
-    # ---------------- блок 3: динамика
-    st.subheader("Жалобы по месяцам")
-    st.plotly_chart(fig_dynamics(flt), width="stretch")
-    st.markdown(
-        "**Что это значит.** Каждая линия — один регион. Сравнивать высоту линий "
-        "разных регионов нельзя: регионы разного размера и по-разному ведут учёт. "
-        "Смотреть стоит на изменения внутри одной линии. Первый и последний месяц "
-        "региона могут быть неполными. Провал у Туркестанской области в первой "
-        "половине 2025 года — за эти месяцы в выгрузке нет данных, а не нет жалоб.")
-    with st.expander("Как это считается", expanded=False):
-        st.markdown(
-            "Счётчик строк класса `problem` по календарным месяцам (`created_at`). "
-            "У Туркестана в выгрузке нет обращений с 2025-01-01 по 2025-06-29 — "
-            "180 дней, 27.4% окна региона (раздел 10, пункт 7). Месяцы без строк "
-            "на графике не рисуются, и линия соединяет соседние точки.")
-
-    st.divider()
-
-    # ---------------- блок 4: структура тем
-    title = "О чём жалуются"
-    if len(sel_reg) == 1:
-        title += f" — {sel_reg[0]}"
-    st.subheader(title)
-    st.plotly_chart(fig_topics(flt), width="stretch")
+    else:
+        st.plotly_chart(fig_topics(flt), width="stretch")
     st.markdown(
         "**Что это значит.** Какие темы дают больше всего жалоб при выбранных "
         "фильтрах. «Прочее» — жалобы, которым не нашлось места в общем списке из 14 "
@@ -543,16 +578,73 @@ def main():
             "`src/topic_mapping.py` (раздел 5e CLAUDE.md); только класс `problem`. "
             "«Прочее» внутри `problem` по всей таблице — 1.67%. Смена состава потока "
             "ВКО по кварталам и темам — раздел 5g и раздел 10, пункт 8.")
-
     st.divider()
 
-    # ---------------- блок 5: выгрузка
-    export_section(st, df, flt, events, sel_reg, sel_topic, topics, a, b, ev_descr)
-
+    # ---------------- 6. динамика — свёрнута: семь линий сразу не читаются
+    st.subheader("Жалобы по месяцам")
+    st.caption("График свёрнут: в нём по линии на регион, и все регионы сразу читаются "
+               "плохо. Удобнее выбрать один регион в фильтрах выше.")
+    with st.expander("Показать график по месяцам", expanded=False):
+        if flt.empty:
+            st.info("Под выбранные фильтры не попало ни одного обращения.")
+        else:
+            st.plotly_chart(fig_dynamics(flt), width="stretch")
+        st.markdown(
+            "**Что это значит.** Каждая линия — один регион. Сравнивать высоту линий "
+            "разных регионов нельзя: регионы разного размера и по-разному ведут учёт. "
+            "Смотреть стоит на изменения внутри одной линии. Первый и последний месяц "
+            "региона могут быть неполными. Провал у Туркестанской области в первой "
+            "половине 2025 года — за эти месяцы в выгрузке нет данных, а не нет жалоб.")
+    with st.expander("Как это считается", expanded=False):
+        st.markdown(
+            "Счётчик строк класса `problem` по календарным месяцам (`created_at`). "
+            "У Туркестана в выгрузке нет обращений с 2025-01-01 по 2025-06-29 — "
+            "180 дней, 27.4% окна региона (раздел 10, пункт 7). Месяцы без строк "
+            "на графике не рисуются, и линия соединяет соседние точки.")
     st.divider()
 
-    # ---------------- блок 6: риск просрочки (только Караганда, из reports/)
-    risk_section(st)
+    # ---------------- 7. общие цифры — от фильтров не зависят
+    summary_section(st, df)
+    st.divider()
+
+    # ---------------- 8. выгрузка
+    if flt.empty:
+        st.subheader("Выгрузка отчётов")
+        st.info("Выгрузка недоступна: под выбранные фильтры не попало ни одного "
+                "обращения.")
+    else:
+        export_section(st, df, flt, events, sel_reg, sel_topic, topics, a, b, ev_descr)
+
+
+def summary_section(st, df):
+    """Шесть общих чисел — бывшая «Сводка», теперь ниже, под «Общие цифры»."""
+    st.subheader("Общие цифры")
+    vc = df["appeal_class"].value_counts()
+    c = st.columns(6)
+    c[0].metric("Всего обращений", f"{len(df):,}".replace(",", " "))
+    for i, k in enumerate(("problem", "info", "system"), start=1):
+        c[i].metric(CLASS_RU[k], f"{vc.get(k, 0):,}".replace(",", " "),
+                    f"{100*vc.get(k, 0)/len(df):.1f}% всех обращений",
+                    delta_color="off")
+    c[4].metric("Регионов", df["region"].nunique())
+    c[5].metric("Период", f"{df.created_at.min():%m.%Y} — {df.created_at.max():%m.%Y}")
+    st.markdown(
+        f"**Что это значит.** Работу городским службам дают только жалобы на "
+        f"городские проблемы — {100*vc.get('problem', 0)/len(df):.1f}% всех "
+        f"обращений. Справочные звонки — просьбы о справке: контакты служб, "
+        f"справочная информация, выборы, карантин. Служебные записи — сброшенные "
+        f"звонки, переадресации на 102, 103, 112, благодарности. Всплески, динамика и "
+        f"темы выше считаются только по жалобам. Период у регионов разный: Павлодар — "
+        f"с 2020 года, Акмола — только с июля 2025.")
+    with st.expander("Как это считается", expanded=False):
+        st.markdown(
+            "Класс обращения — колонка `appeal_class`: `problem` (жалобы на "
+            "городские проблемы), `info` (справочные), `system` (служебные). "
+            "Присваивается по теме из справочника региона правилами "
+            "`src/topic_mapping.py`, раздел 5e CLAUDE.md. Регионы записывают разное: "
+            "одни заводят карточку только на проблему, другие — на любой звонок "
+            "(раздел 5d). Окна данных по регионам — раздел 5c. Эти числа не зависят "
+            "от фильтров страницы.")
 
 
 if __name__ == "__main__":

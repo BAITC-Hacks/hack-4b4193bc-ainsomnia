@@ -74,7 +74,10 @@ def headline(path=METRICS):
             "sla_days": m["data"]["sla_days"], "sla_source": m["data"]["sla_source"],
             "test_n": m["data"]["test_n"], "cutoff": m["data"]["cutoff"],
             "train_share": m["data"]["train_share_y1"],
-            "test_share": m["data"]["test_share_y1"]}
+            "test_share": m["data"]["test_share_y1"],
+            # отмечено моделью на её пороге с train (4b): TP + FP, не пересчёт
+            "threshold": main["threshold"], "flagged": main["TP"] + main["FP"],
+            "flag_precision": main["precision_1"]}
 
 
 def _n(x, fmt=","):
@@ -84,7 +87,7 @@ def _n(x, fmt=","):
 
 
 def risk_section(st):
-    st.subheader("Риск просрочки — только Карагандинская область")
+    st.subheader("Риск просрочки — только Карагандинская область", anchor="risk")
     if not (PRED.exists() and METRICS.exists()):
         st.info(f"Нет {PRED} или {METRICS}. Их создаёт `.venv/bin/python train.py` "
                 "(раздел 0 CLAUDE.md); predictions.csv в git не хранится.")

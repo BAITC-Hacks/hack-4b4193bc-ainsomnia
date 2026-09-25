@@ -24,7 +24,7 @@ CLAUDE_MD = Path("CLAUDE.md")
 # Якоря в CLAUDE.md: начало строки -> сама строка целиком идёт в отчёт.
 LIMIT_ANCHORS = (
     "**Регионы применяют разные определения обращения.",
-    "2. Любой сравнительный дашборд по регионам должен строиться",
+    "2. Любая сводка или график, где регионы сравниваются между собой",
 )
 PII_COLUMNS = ("full_name", "applicant_number", "operator", "xcoordinate",
                "ycoordinate", "appeal_address", "street", "com_exp", "result",
