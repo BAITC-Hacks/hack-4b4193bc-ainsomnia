@@ -26,6 +26,9 @@ from src.topic_mapping import map_topic
 PRED = Path("reports/predictions.csv")
 METRICS = Path("reports/metrics.json")
 SHARES = (0.10, 0.20, 0.30)
+# Рабочая точка — 20% потока (раздел 6b): её показывает карточка шапки, и на ней
+# же по умолчанию открывается блок. Финальная доля зависит от ёмкости операторов.
+WORK_SHARE = 0.20
 
 
 def load_risk(path=PRED):
@@ -77,7 +80,8 @@ def headline(path=METRICS):
             "test_share": m["data"]["test_share_y1"],
             # отмечено моделью на её пороге с train (4b): TP + FP, не пересчёт
             "threshold": main["threshold"], "flagged": main["TP"] + main["FP"],
-            "flag_precision": main["precision_1"]}
+            "tp": main["TP"], "fp": main["FP"],
+            "flag_precision": main["precision_1"], "flag_recall": main["recall_1"]}
 
 
 def _n(x, fmt=","):
@@ -87,11 +91,13 @@ def _n(x, fmt=","):
 
 
 def risk_section(st):
+    """Блок риска. Возвращает рабочую точку (20% потока) для карточки шапки
+    или None, если готовых файлов модели нет."""
     st.subheader("Риск просрочки — только Карагандинская область", anchor="risk")
     if not (PRED.exists() and METRICS.exists()):
         st.info(f"Нет {PRED} или {METRICS}. Их создаёт `.venv/bin/python train.py` "
                 "(раздел 0 CLAUDE.md); predictions.csv в git не хранится.")
-        return
+        return None
     h = headline()
     risk = load_risk()
     cutoff = pd.Timestamp(h["cutoff"])
@@ -102,7 +108,9 @@ def risk_section(st):
         "уже известно, — поэтому точность прогноза можно проверить.")
 
     share = st.radio("Сколько обращений проверять первыми — самые рискованные",
-                     SHARES, horizontal=True, format_func=lambda s: f"{s:.0%} потока")
+                     SHARES, index=SHARES.index(WORK_SHARE), horizontal=True,
+                     format_func=lambda s: f"{s:.0%} потока"
+                     + (" — рабочая точка" if s == WORK_SHARE else ""))
     sel = top_share(risk, share)
     top10 = top_share(risk, 0.10)
 
@@ -124,6 +132,13 @@ def risk_section(st):
                   "наугад.")
 
     st.markdown(
+        f"**Очередь на проверку — это не прогноз по всей базе.** По собственному "
+        f"порогу модель отмечает как рискованные {_n(h['flagged'])} из "
+        f"{_n(h['test_n'])} обращений ({h['flagged'] / h['test_n']:.0%}), и из них "
+        f"просрочены {h['flag_precision']:.0%}. Проверить столько обычно некому, "
+        f"поэтому рабочая точка — {WORK_SHARE:.0%} самых рискованных: список короче, "
+        "а просроченных в нём больше. Итоговая доля зависит от того, сколько "
+        "обращений операторы успевают проверить.  \n"
         f"**«Просрочено» здесь — обрабатывалось дольше {h['sla_days']} суток.** Это "
         "допущение команды, а не утверждённый норматив: в Костанае и Туркестане "
         "фактические сроки — 1–7 суток. Даты закрытия в данных Караганды нет, срок "
@@ -145,6 +160,12 @@ def risk_section(st):
             "изменения записи, не закрытия (раздел 3).\n\n"
             f"- ROC-AUC {h['roc_auc']:.4f}; PR-AUC {h['pr_auc']:.4f} при базе "
             f"{h['base']:.4f} — доле просроченных в тесте.\n"
+            f"- Порог модели {h['threshold']:.2f} подобран на out-of-fold train "
+            f"(`TimeSeriesSplit`), к тесту не подгонялся. На нём отмечено TP + FP = "
+            f"{_n(h['tp'])} + {_n(h['fp'])} = {_n(h['flagged'])}; precision "
+            f"{h['flag_precision']:.4f}, recall {h['flag_recall']:.4f}.\n"
+            f"- Рабочая точка {WORK_SHARE:.0%} потока (раздел 6b) — верхние "
+            f"{_n(top_share(risk, WORK_SHARE)['n'])} по `y_prob`, без порога.\n"
             f"- Precision в топ-10%: {top10['precision']:.4f} — в "
             f"{top10['precision'] / h['base']:.2f} раза выше базы.\n"
             f"- Справочник по `sub_category` без обучения: PR-AUC "
@@ -154,3 +175,7 @@ def risk_section(st):
             "переоценка риска в середине и вверху шкалы — следствие сдвига доли "
             f"просрочек между train ({h['train_share']:.1%}) и test "
             f"({h['test_share']:.1%}). Подгонкой под тест не правится.")
+    work = top_share(risk, WORK_SHARE)
+    return {"share": WORK_SHARE, "n": work["n"], "overdue": work["overdue"],
+            "precision": work["precision"], "base": work["base"],
+            "sla_days": h["sla_days"], "cutoff": h["cutoff"], "test_n": h["test_n"]}
