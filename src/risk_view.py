@@ -94,9 +94,16 @@ def risk_section(st):
     """Блок риска. Возвращает рабочую точку (20% потока) для карточки шапки
     или None, если готовых файлов модели нет."""
     st.subheader("Риск просрочки — только Карагандинская область", anchor="risk")
-    if not (PRED.exists() and METRICS.exists()):
-        st.info(f"Нет {PRED} или {METRICS}. Их создаёт `.venv/bin/python train.py` "
-                "(раздел 0 CLAUDE.md); predictions.csv в git не хранится.")
+    missing = [str(f) for f in (PRED, METRICS) if not f.exists()]
+    if missing:
+        st.info(
+            f"**Нет готового результата модели риска** — не найдено: "
+            f"{', '.join(f'`{m}`' for m in missing)}. Блок только показывает "
+            "результат модели и сам ничего не обучает.\n\n"
+            "Что сделать: из корня репозитория выполнить `.venv/bin/python train.py`. "
+            "Ему нужен сырой файл Карагандинской области (раздел 0 CLAUDE.md, шаг 3). "
+            "`reports/predictions.csv` в git не хранится — это строка на обращение; "
+            "в контейнере каталог `reports/` подключается томом.")
         return None
     h = headline()
     risk = load_risk()

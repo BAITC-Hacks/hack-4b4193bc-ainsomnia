@@ -1,0 +1,31 @@
+# Установка — одна команда из корня репозитория (раздел 0 CLAUDE.md):
+#
+#     uv pip install --python .venv/bin/python -e .
+#
+# Ставит зависимости из requirements.txt, сам пакет src и две команды в .venv/bin:
+# nazar-build-data и nazar-dashboard. Пакет ставится в режиме -e: код остаётся в
+# репозитории, правки видны без переустановки.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nazar-109"
+version = "0.1.0"
+description = "Обращения в контакт-центр 109: детектор всплесков, риск просрочки, витрина руководителя"
+requires-python = ">=3.12,<3.13"
+dynamic = ["dependencies", "optional-dependencies"]
+
+[project.scripts]
+nazar-build-data = "src.cli:build_data"
+nazar-dashboard = "src.cli:dashboard"
+
+[tool.setuptools.dynamic]
+# Один источник версий — requirements.txt; здесь они не повторяются.
+dependencies = { file = ["requirements.txt"] }
+# Дообучение (раздел 5k) — отдельно: витрине torch не нужен. Ставится как `-e .[ml]`.
+optional-dependencies.ml = { file = ["requirements-ml.txt"] }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src", "src.*"]

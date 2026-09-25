@@ -71,6 +71,9 @@ INVENTORY_RAW_ROWS = {
 # --------------------------------------------------------------------------- #
 
 def _read_csv(path: str) -> pd.DataFrame:
+    # все загрузчики читают сырьё здесь — одна точка для понятного сообщения
+    from src.cli import require_raw
+    require_raw(path)
     return pd.read_csv(path, dtype=str)
 
 

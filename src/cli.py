@@ -1,0 +1,98 @@
+"""Две команды проекта и понятные сообщения, когда не хватает файла.
+
+После `uv pip install --python .venv/bin/python -e .` в .venv/bin появляются:
+
+    nazar-build-data   сырые выгрузки -> data/unified.parquet с темами, плюс проверка
+    nazar-dashboard    витрина руководителя (аргументы streamlit передаются дальше,
+                       например --server.port 8600)
+
+Пути в проекте относительные (data/, reports/, CLAUDE.md), поэтому обе команды
+сначала переходят в корень проекта и работают из любого каталога. Корень — это
+каталог над src/ (пакет ставится в режиме -e, код остаётся в репозитории); так же
+его находят адаптеры, поэтому отдельной настройки корня нет.
+
+Модуль лёгкий — без pandas и streamlit на верхнем уровне: его импортируют
+остальные модули ради `require`, и импорт не должен ничего тянуть.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+UNIFIED = Path("data/unified.parquet")
+BUILD_HINT = ("соберите её одной командой: .venv/bin/nazar-build-data "
+              "(раздел 0 CLAUDE.md; нужны сырые выгрузки)")
+RAW_HINT = ("сырых выгрузок в репозитории нет и не будет — в них персональные данные. "
+            "Получите их у владельца данных и положите в корень репозитория "
+            "(раздел 0 CLAUDE.md, шаг 3): 8 CSV и 4 XLSX по семи регионам, Павлодар — "
+            "в подкаталоге «Обращения граждан Павлодар»")
+
+
+def require(path, what, how):
+    """Нет файла — сообщение «чего нет, где искали, что сделать» и выход с кодом 2.
+
+    Трейсбек FileNotFoundError говорит, где упало, но не говорит, что делать."""
+    p = Path(path)
+    if p.exists():
+        return p
+    sys.stderr.write(f"\nНЕ ХВАТАЕТ: {what}\n  искали здесь: {p.resolve()}\n"
+                     f"  что сделать: {how}\n\n")
+    raise SystemExit(2)
+
+
+def require_unified():
+    return require(UNIFIED, "сводной таблицы обращений", BUILD_HINT)
+
+
+def require_raw(path):
+    return require(path, "сырого файла выгрузки", RAW_HINT)
+
+
+# ---------------------------------------------------------------- команды
+BUILD_STEPS = (
+    ("адаптеры схем: 12 файлов -> data/by_region/", "src.adapters.adapters"),
+    ("сводная таблица -> data/unified.parquet", "src.adapters.build_unified"),
+    ("темы и классы обращения", "src.topic_mapping"),
+    ("проверка покрытия тем против эталона", "tests.test_topic_coverage"),
+)
+
+
+def build_data():
+    """Шаги 4–7 раздела 0 одной командой, строго по порядку.
+
+    Каждый шаг — отдельный процесс: следующий читает то, что записал предыдущий,
+    и на первой ошибке команда останавливается, а не собирает витрину из
+    полуготовых файлов."""
+    os.chdir(ROOT)
+    from src.adapters.adapters import BASE_DIR
+    require(BASE_DIR, "каталога с сырыми выгрузками", RAW_HINT)
+    for i, (title, module) in enumerate(BUILD_STEPS, start=1):
+        print(f"\n=== Шаг {i} из {len(BUILD_STEPS)}: {title}", flush=True)
+        code = subprocess.run([sys.executable, "-m", module]).returncode
+        if code:
+            sys.stderr.write(
+                f"\nШаг {i} «{title}» завершился с ошибкой (код {code}). Дальше не иду: "
+                f"следующие шаги читают то, что пишет этот. Сообщение шага — выше.\n")
+            return code
+    print("\nГотово: data/unified.parquet собран и проверен. Витрина: "
+          ".venv/bin/nazar-dashboard")
+    return 0
+
+
+def dashboard():
+    """streamlit run src/dashboard.py из корня проекта.
+
+    Без данных витрина всё равно поднимается и говорит на странице, чего не
+    хватает, — это понятнее человеку в браузере, чем упавший процесс. Здесь
+    то же предупреждение печатается в терминал."""
+    os.chdir(ROOT)
+    if not UNIFIED.exists():
+        sys.stderr.write(f"\nПРЕДУПРЕЖДЕНИЕ: нет {UNIFIED.resolve()} — витрина откроется "
+                         f"с инструкцией вместо данных; {BUILD_HINT}.\n\n")
+    from streamlit.web import cli as stcli
+    sys.argv = ["streamlit", "run", str(ROOT / "src" / "dashboard.py"), *sys.argv[1:]]
+    return stcli.main()
+

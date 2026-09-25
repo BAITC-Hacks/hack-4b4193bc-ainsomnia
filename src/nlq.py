@@ -145,6 +145,8 @@ def longest_zero_run(s):
 
 
 def load(path=DATA):
+    from src.cli import BUILD_HINT, require
+    require(path, "сводной таблицы обращений", BUILD_HINT)
     df = pd.read_parquet(path, columns=["created_at", "region", "district", "executor",
                                         "status", "sla_breach", "appeal_class", "topic"])
     df["created_at"] = pd.to_datetime(df["created_at"])

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Витрина руководителя по обращениям 109.
 
-    PYTHONPATH=. .venv/bin/streamlit run src/dashboard.py
+    .venv/bin/nazar-dashboard
 
-Из корня репозитория и только с PYTHONPATH=.: streamlit кладёт в sys.path каталог
-скрипта (src/), а не корень, и без этого импорт src.* падает (CLAUDE.md, раздел 0).
+Команда появляется после `uv pip install --python .venv/bin/python -e .` и сама
+переходит в корень проекта. Пакет src установлен, поэтому PYTHONPATH не нужен
+(CLAUDE.md, раздел 0).
 
 Источник — data/unified.parquet (собирается src/adapters/build_unified.py
 и размечается src/topic_mapping.py). Если не указано иное, работаем по
@@ -21,7 +22,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from src.export import build_excel, build_pdf
+from src.export import PdfUnavailable, build_excel, build_pdf
 from src.risk_view import risk_section
 from src.spikes import (GAP_MIN, SEASONAL_REGIONS, classify_seasonal, daily_counts,
                         detect, gap_days, with_duration)
@@ -430,7 +431,8 @@ def top_cards(st, df, info, work):
                   "[Открыть в ленте ↓](#vspleski)", size="1.4rem")
     if work is None:
         _card(c[2], "Очередь на проверку — Караганда", "нет данных",
-              "Нет готовых файлов модели: их создаёт train.py.")
+              "Нет готового результата модели риска — что сделать, написано в "
+              "блоке риска ниже.", "[К блоку риска ↓](#risk)")
     else:
         _card(c[2], "Очередь на проверку риска просрочки — только Караганда",
               f"{work['n']:,}".replace(",", " "),
@@ -480,18 +482,20 @@ def export_section(st, df, flt, events, sel_reg, sel_topic, all_topics, lo, hi, 
         figs = [("Из чего состоит поток обращений по регионам", fig_structure(scope)),
                 ("Жалобы по месяцам", fig_dynamics(flt)),
                 ("О чём жалуются", fig_topics(flt))]
-        # PDF зависит от reportlab и от системного шрифта с кириллицей. Обе
-        # причины отказа внешние по отношению к данным, поэтому объясняем их,
-        # а не показываем трейсбек: Excel при этом остаётся доступен.
+        # PDF зависит от reportlab, системного шрифта с кириллицей и браузера
+        # для картинок графиков. Все три причины внешние по отношению к данным,
+        # поэтому объясняем их, а не показываем трейсбек: Excel от них не зависит.
+        skipped = []
         try:
             st.session_state["pdf"] = build_pdf(scope, events, sel_reg, period,
-                                                figs, descr)
-        except ImportError:
-            st.error("PDF не собран: не установлен `reportlab`. "
-                     "Установите его — `uv pip install reportlab==5.0.1` — "
-                     "или выгрузите Excel, он не требует дополнительных пакетов.")
-        except RuntimeError as e:
+                                                figs, descr, skipped=skipped)
+        except PdfUnavailable as e:
+            st.session_state.pop("pdf", None)
             st.error(f"PDF не собран: {e}. Excel при этом доступен.")
+        if skipped:
+            st.warning(f"PDF собран, но без графиков ({len(skipped)} из {len(figs)}): "
+                       f"{skipped[0][1]}. Таблицы и оговорки в нём есть; в самом "
+                       "PDF на месте графика стоит та же причина.")
     stamp = f"{lo:%Y%m%d}-{hi - pd.Timedelta(days=1):%Y%m%d}"
     if st.session_state.get("xlsx"):
         c[0].download_button("Скачать Excel", st.session_state["xlsx"],
@@ -514,11 +518,13 @@ def main():
 
     if not DATA.exists():
         st.error(
-            f"Нет файла {DATA}. Соберите его тремя шагами по порядку:\n\n"
-            "1. `.venv/bin/python -m src.adapters.adapters`\n"
-            "2. `.venv/bin/python -m src.adapters.build_unified`\n"
-            "3. `.venv/bin/python -m src.topic_mapping`\n\n"
-            "Подробнее — раздел «Развёртывание с нуля» в CLAUDE.md.")
+            f"**Нет данных для витрины** — не найден файл `{DATA}`.\n\n"
+            "Соберите его одной командой из корня репозитория: "
+            "`.venv/bin/nazar-build-data`. Для этого нужны сырые выгрузки 109 — в "
+            "репозитории их нет, потому что в них персональные данные: получите их у "
+            "владельца данных и положите в корень (раздел 0 CLAUDE.md, шаг 3). "
+            "В контейнере каталог `data/` подключается томом — см. раздел "
+            "«Контейнер» в CLAUDE.md.")
         st.stop()
 
     df = st.cache_data(load_data)()

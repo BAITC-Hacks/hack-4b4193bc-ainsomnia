@@ -1,0 +1,25 @@
+# Данные и построчные файлы в образ не попадают НИКОГДА (раздел 1 CLAUDE.md):
+# они подключаются томами при запуске (docker-compose.yml).
+drive-download-*/
+data/
+raw/
+models/
+analysis/
+reports/predictions.csv
+reports/demo/
+**/*.csv
+**/*.xlsx
+**/*.xls
+**/*.parquet
+
+# Окружение и служебное
+.venv/
+venv/
+**/__pycache__/
+**/*.pyc
+*.egg-info/
+.git/
+.claude/
+.claude-flow/
+.DS_Store
+docs/

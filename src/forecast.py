@@ -331,6 +331,8 @@ def main():
     ap.add_argument("--folds", type=int, default=3, help="отсечек в скользящей проверке")
     a = ap.parse_args()
 
+    from src.cli import require_unified
+    require_unified()
     df = pd.read_parquet(DATA, columns=["created_at", "region", "topic", "appeal_class"])
     df = df[df.appeal_class == "problem"].copy()
     df["created_at"] = pd.to_datetime(df["created_at"])

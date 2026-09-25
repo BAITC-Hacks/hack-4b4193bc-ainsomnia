@@ -55,6 +55,8 @@ def hr(title):
 # --------------------------------------------------------------------------
 def load_and_clean(path):
     hr("ШАГ 1. ЗАГРУЗКА И ЧИСТКА")
+    from src.cli import require_raw
+    require_raw(path)
     df = pd.read_csv(path, encoding="utf-8-sig", dtype=str, keep_default_na=False)
     n0 = len(df)
     print(f"Строк в файле: {n0}")

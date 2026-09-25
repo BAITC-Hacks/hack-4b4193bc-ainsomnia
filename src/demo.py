@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.export import build_excel, build_pdf, check_export_pii
+from src.export import PdfUnavailable, build_excel, build_pdf, check_export_pii
 from src.spikes import (classify_seasonal, daily_counts, detect, gap_days,
                         with_duration)
 from src.topic_mapping import classify_appeal, map_topic
@@ -91,6 +91,8 @@ def bar(n, scale):
 # ---------------------------------------------------------------- шаги
 def step_load():
     head("ШАГ 0. Источник данных")
+    from src.cli import require_unified
+    require_unified()
     df = pd.read_parquet(DATA, columns=["created_at", "region", "category", "topic",
                                         "appeal_class", "district", "executor",
                                         "status", "sla_breach"])
@@ -403,7 +405,7 @@ def step_feed(sl, blocked, pause):
           f"там есть блок «Как это считается». Раздел 5f.{OFF}")
     print(f"  {DIM}Витрину целиком в терминале показать нельзя — это веб-страница. "
           f"Запуск:{OFF}")
-    print(f"  {BOLD}PYTHONPATH=. .venv/bin/streamlit run src/dashboard.py{OFF}")
+    print(f"  {BOLD}.venv/bin/nazar-dashboard{OFF}")
     wait(pause * 4)
     return view
 
@@ -426,10 +428,16 @@ def step_export(df, view):
                                                              .dt.to_period("M")
                                                              .dt.to_timestamp()))),
                 ("Структура тем", fig_topics(scope[scope.appeal_class == "problem"]))]
-        pdf = build_pdf(scope, view, [REGION], period, figs, descr)
+        skipped = []
+        pdf = build_pdf(scope, view, [REGION], period, figs, descr, skipped=skipped)
         (OUT / "demo.pdf").write_bytes(pdf)
         print(f"  PDF:   {OUT / 'demo.pdf'} — {len(pdf) / 1024:.0f} КБ")
-    except Exception as e:                       # noqa: BLE001 — показываем причину
+        if skipped:
+            print(f"  {YELLOW}PDF без графиков ({len(skipped)} из {len(figs)}): "
+                  f"{skipped[0][1]}{OFF}")
+    except PdfUnavailable as e:
+        print(f"  {YELLOW}PDF не собран: {e}. Excel собран.{OFF}")
+    except Exception as e:                       # noqa: BLE001 — показ не должен падать
         print(f"  {YELLOW}PDF не собран: {type(e).__name__}: {e}{OFF}")
 
     chk = check_export_pii(xlsx)
@@ -462,14 +470,7 @@ def main():
     print(f"{DIM}Дней в показе {days}; пауза {route_pause:.1f} с в модулях 1–2 и "
           f"{a.pause:.1f} с в модуле 3 —{OFF}")
     print(f"{DIM}проигрывание уложится в {ROUTE_BUDGET + STREAM_BUDGET} с{OFF}")
-    if not DATA.exists():
-        print(f"{RED}Нет файла {DATA}. Соберите его тремя шагами по порядку:{OFF}")
-        print("  1. .venv/bin/python -m src.adapters.adapters")
-        print("  2. .venv/bin/python -m src.adapters.build_unified")
-        print("  3. .venv/bin/python -m src.topic_mapping")
-        print("  Подробнее — раздел «Развёртывание с нуля» в CLAUDE.md")
-        return 1
-
+    # нет данных — то же сообщение, что у остальных команд (src/cli.py)
     df = step_load()
     wait(a.pause)
     routed, prio = step_modules_1_2(df, route_pause)
@@ -523,7 +524,7 @@ def main():
     print(f"    55 строк на 1 063 216. Это ограничение данных, а не реализации.")
     print(f"\n  {DIM}Что показать в терминале нельзя, и почему:{OFF}")
     print(f"  {DIM}  · витрина — веб-страница; данные её ленты выведены выше,{OFF}")
-    print(f"  {DIM}    запуск: PYTHONPATH=. .venv/bin/streamlit run src/dashboard.py{OFF}")
+    print(f"  {DIM}    запуск: .venv/bin/nazar-dashboard{OFF}")
     print(f"  {DIM}  · сборка канона адаптером — пакетный шаг по файлу целиком,{OFF}")
     print(f"  {DIM}    поштучно не проигрывается; заглушку не ставили{OFF}\n")
     return 0

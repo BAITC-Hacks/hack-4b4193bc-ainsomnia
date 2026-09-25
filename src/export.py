@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 from datetime import date
 from pathlib import Path
@@ -147,40 +148,78 @@ def _pdf_table(data, styles, col_widths=None):
     return t
 
 
+class PdfUnavailable(RuntimeError):
+    """PDF собрать нельзя по внешней причине — текст говорит, что сделать.
+    Excel от этих причин не зависит."""
+
+
+# Шрифты с кириллицей по порядку: свой через переменную, Linux (Debian/Ubuntu и
+# образ контейнера, Fedora), macOS. Первым найденным и печатаем.
+FONT_CANDIDATES = [
+    ("Custom", os.environ.get("NAZAR_PDF_FONT", ""), os.environ.get("NAZAR_PDF_FONT_BOLD")),
+    ("DejaVuSans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    ("DejaVuSans", "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+     "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf"),
+    ("DejaVuSans", "/opt/homebrew/share/fonts/DejaVuSans.ttf", None),
+    ("Arial", "/System/Library/Fonts/Supplemental/Arial.ttf",
+     "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+    ("ArialUnicode", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf", None),
+]
+
+
 def _register_font():
     """Шрифт с кириллицей. Без него reportlab печатает чёрные квадраты."""
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
-    candidates = [("DejaVuSans", "/opt/homebrew/share/fonts/DejaVuSans.ttf", None),
-                  ("Arial", "/System/Library/Fonts/Supplemental/Arial.ttf",
-                   "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
-                  ("ArialUnicode", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-                   None)]
-    for name, regular, bold in candidates:
-        if Path(regular).exists():
+    for name, regular, bold in FONT_CANDIDATES:
+        if regular and Path(regular).exists():
             pdfmetrics.registerFont(TTFont(name, regular))
             if bold and Path(bold).exists():
                 pdfmetrics.registerFont(TTFont(name + "-Bold", bold))
                 return {"font": name, "bold": name + "-Bold"}
             return {"font": name, "bold": name}
-    raise RuntimeError("Не найден TTF-шрифт с кириллицей — PDF вышел бы квадратами")
+    raise PdfUnavailable(
+        "не найден шрифт с кириллицей — без него текст в PDF вышел бы квадратами. "
+        "Что сделать: на Debian/Ubuntu — `apt install fonts-dejavu-core`; на macOS "
+        "подходящий Arial есть в системе; либо укажите свой TTF в переменной "
+        "NAZAR_PDF_FONT=/путь/к/шрифту.ttf. Искали: "
+        + "; ".join(r for _, r, _ in FONT_CANDIDATES if r))
+
+
+CHART_HINT = ("для картинок графиков нужен браузер Chrome или Chromium — его "
+              "использует пакет kaleido. Установите Chrome или выполните "
+              "`.venv/bin/plotly_get_chrome`")
 
 
 def _fig_png(fig, width=980, height=420):
-    """Картинка графика для PDF. None, если движок не отдал изображение."""
+    """Картинка графика для PDF: (png, None) или (None, причина).
+
+    Раньше любая ошибка глоталась, и PDF молча выходил без графиков."""
     try:
-        return fig.to_image(format="png", width=width, height=height, scale=2)
-    except Exception:
-        return None
+        return fig.to_image(format="png", width=width, height=height, scale=2), None
+    except Exception as e:                       # noqa: BLE001 — причина уходит в отчёт
+        return None, f"{CHART_HINT} (ошибка: {type(e).__name__})"
 
 
-def build_pdf(df, events, regions, period, figures=(), filters=(), path=CLAUDE_MD):
-    """Печатный отчёт: ограничения, две таблицы, лента, графики. Возвращает bytes."""
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (Image, PageBreak, Paragraph, SimpleDocTemplate,
-                                    Spacer)
+def build_pdf(df, events, regions, period, figures=(), filters=(), path=CLAUDE_MD,
+              skipped=None):
+    """Печатный отчёт: ограничения, две таблицы, лента, графики. Возвращает bytes.
+
+    Не собирается — PdfUnavailable с объяснением (нет reportlab, нет шрифта).
+    График не отрисовался — в PDF вместо него строка с причиной, а пара
+    (название, причина) добавляется в `skipped`, чтобы вызывающий сказал об этом."""
+    try:
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (Image, PageBreak, Paragraph, SimpleDocTemplate,
+                                        Spacer)
+    except ImportError as e:
+        raise PdfUnavailable(
+            "не установлен пакет reportlab. Что сделать: переустановите зависимости "
+            "проекта — `uv pip install --python .venv/bin/python -e .` из корня "
+            "репозитория (reportlab указан в requirements.txt)") from e
 
     fonts = _register_font()
     buf = io.BytesIO()
@@ -224,11 +263,14 @@ def build_pdf(df, events, regions, period, figures=(), filters=(), path=CLAUDE_M
                                txt))
 
     for title, fig in figures:
-        png = _fig_png(fig)
+        png, why = _fig_png(fig)
+        story += [PageBreak(), Paragraph(title, h2)]
         if png is None:
+            story.append(Paragraph(f"График не вставлен: {why}.", txt))
+            if skipped is not None:
+                skipped.append((title, why))
             continue
-        story += [PageBreak(), Paragraph(title, h2),
-                  Image(io.BytesIO(png), width=250 * mm, height=107 * mm)]
+        story.append(Image(io.BytesIO(png), width=250 * mm, height=107 * mm))
     doc.build(story)
     return buf.getvalue()
 

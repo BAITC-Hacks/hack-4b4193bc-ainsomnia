@@ -264,6 +264,8 @@ def main():
                     help="вывести дневной ряд по срезу и выйти")
     a = ap.parse_args()
 
+    from src.cli import require_unified
+    require_unified()
     full = pd.read_parquet(DATA, columns=["created_at", "region", "topic", "appeal_class"])
     full["created_at"] = pd.to_datetime(full["created_at"])
     df = full[full.appeal_class == "problem"].copy()
