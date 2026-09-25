@@ -18,6 +18,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from src.export import build_excel, build_pdf
+from src.risk_view import risk_section
 from src.spikes import (GAP_MIN, SEASONAL_REGIONS, classify_seasonal, daily_counts,
                         detect, gap_days, with_duration)
 
@@ -431,6 +432,11 @@ def main():
 
     # ---------------- блок 5: выгрузка
     export_section(st, df, flt, events, sel_reg, sel_topic, topics, a, b, ev_descr)
+
+    st.divider()
+
+    # ---------------- блок 6: риск просрочки (только Караганда, из reports/)
+    risk_section(st)
 
 
 if __name__ == "__main__":
