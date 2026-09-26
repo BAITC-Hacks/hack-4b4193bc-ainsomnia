@@ -33,6 +33,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.finetune import pipeline as P
+from src.synth.preamble import require_flag, with_preamble
 
 MODELS = Path("models/finetune")
 REPORTS = Path("reports/finetune")
@@ -120,9 +121,12 @@ def main():
                     help="умышленная поломка: метки train перемешиваются, "
                          "macro-F1 обязан упасть к 1/числа классов")
     ap.add_argument("--baselines-only", action="store_true")
+    ap.add_argument("--synthetic", action="store_true",
+                    help="отчёт начинается обязательной оговоркой о синтетике")
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
+    require_flag(a.csv, a.synthetic)
 
     started = time.time()
     set_seed(a.seed)
@@ -212,6 +216,7 @@ def main():
             f"({time.time() - t0:.0f} с)")
 
     metrics = {"run": run, "model": a.model, "csv": a.csv,
+               "synthetic": a.synthetic,
                "shuffle_labels": a.shuffle_labels,
                "classes": len(names), "random_macro_f1": 1 / len(names),
                "baselines": {"most_frequent": mf, "tfidf_logreg": tf,
@@ -440,11 +445,12 @@ def write_report(path, run, a, names, m, pc, conf, info):
           P.md_table(pc.head(10)),
           "\n## Частые ошибки\n",
           P.md_table(conf),
-          f"\n\nОбучение {m['train_seconds']:.0f} с.\n",
-          "**Числа этого отчёта относятся к внешнему корпусу и ничего не "
-          "говорят о качестве на обращениях граждан.** Корпус взят для отладки "
-          "пайплайна (раздел 5k CLAUDE.md).\n"]
-    path.write_text("\n".join(L), encoding="utf-8")
+          f"\n\nОбучение {m['train_seconds']:.0f} с.\n"]
+    if not a.synthetic:
+        L.append("**Числа этого отчёта относятся к внешнему корпусу и ничего не "
+                 "говорят о качестве на обращениях граждан.** Корпус взят для "
+                 "отладки пайплайна (раздел 5k CLAUDE.md).\n")
+    path.write_text(with_preamble("\n".join(L), a.synthetic), encoding="utf-8")
 
 
 if __name__ == "__main__":

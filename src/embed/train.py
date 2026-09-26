@@ -37,6 +37,7 @@ import torch
 from src.embed import retrieval as R
 from src.finetune import pipeline as P
 from src.finetune.train import lr_lambda, pick_device, set_seed
+from src.synth.preamble import require_flag, with_preamble
 
 MODELS, REPORTS = Path("models/embed"), Path("reports/embed")
 E5 = "intfloat/multilingual-e5-small"
@@ -111,6 +112,7 @@ def run_baselines(a, parts, y, device, run):
     np.savez(mdir / "perquery_test.npz", y_q=y["test"],
              ids=parts["test"].id.to_numpy(), **perq)
     metrics = {"run": run, "kind": "baselines", "csv": a.csv,
+               "synthetic": a.synthetic,
                "classes": int(len(np.unique(y["train"]))),
                "n_test": int(len(y["test"])), "baselines": out,
                "perquery": str(mdir / "perquery_test.npz")}
@@ -121,7 +123,7 @@ def run_baselines(a, parts, y, device, run):
             f"{out[n]['test']['macro_hit10']:.4f} |"
             for n in ("tfidf", "label_probs", "e5_frozen", "tiny2_frozen")]
     rnd = out["random"]["test"]["macro_p10"]
-    (rdir / "report.md").write_text("\n".join([
+    (rdir / "report.md").write_text(with_preamble("\n".join([
         f"# Базовые линии поиска похожих: {run}\n",
         f"Корпус `{a.csv}`, индекс — train ({P.num(len(y['train']))}), запросы — "
         f"validation и test. Похоже = та же метка. Основная метрика — macro "
@@ -129,7 +131,7 @@ def run_baselines(a, parts, y, device, run):
         "| Базовая линия | val macro p@10 | тест macro p@10 | тест macro p@1 | "
         "тест macro hit@10 |", "|---|---|---|---|---|", *rows,
         f"\nСлучайный уровень на тесте: macro {rnd:.4f}.\n",
-        f"Опора на метках: C={search['C']:g} выбран по валидации.\n"]),
+        f"Опора на метках: C={search['C']:g} выбран по валидации.\n"]), a.synthetic),
         encoding="utf-8")
     log(f"\n  {rdir}/ — metrics.json, report.md;  {mdir}/ — величины по запросам")
 
@@ -179,8 +181,11 @@ def main():
     ap.add_argument("--unfreeze-vocab", action="store_true")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--baselines-only", action="store_true")
+    ap.add_argument("--synthetic", action="store_true",
+                    help="отчёт начинается обязательной оговоркой о синтетике")
     ap.add_argument("--tag", default="")
     a = ap.parse_args()
+    require_flag(a.csv, a.synthetic)
 
     started = time.time()
     set_seed(a.seed)
@@ -200,6 +205,13 @@ def main():
     from transformers import AutoModel, AutoTokenizer
     tok = AutoTokenizer.from_pretrained(a.model)
     tr_text = parts["train"].text.tolist()
+    n_cls = len(np.unique(y["train"]))
+    if a.p > n_cls:
+        # pk_batches и так берёт не больше классов, чем есть; фиксируем
+        # фактическое P, чтобы лог, run.json и отчёт не называли 16×K
+        # там, где батч на деле 15×K.
+        log(f"  классов в train {n_cls} < P={a.p}: батч {n_cls}×{a.k}")
+        a.p = n_cls
     steps = max(1, len(tr_text) // (a.p * a.k))
 
     def fit(lr, epochs, quiet=False):
@@ -320,6 +332,7 @@ def main():
                   "scores": [" ".join(f"{s:.4f}" for s in r) for r in sim]}
                  ).to_csv(mdir / "neighbours.csv", index=False)
     metrics = {"run": run, "kind": "finetuned", "model": a.model, "seed": a.seed,
+               "synthetic": a.synthetic,
                "lr": a.lr, "lr_search": lr_search, "epochs": a.epochs,
                "best_epoch": best["epoch"], "best_val_macro_p10": best["val"],
                "history": hist, "test": tm, "train_seconds": round(train_sec, 1),
@@ -364,7 +377,7 @@ def write_report(path, m, base):
     L += [f"| {h['epoch']}{' ←' if h['epoch'] == m['best_epoch'] else ''} | "
           f"{h['train_loss']:.4f} | {h['val_macro_p10']:.4f} |" for h in m["history"]]
     L.append(f"\nОбучение {m['train_seconds']:.0f} с по настенным часам.\n")
-    path.write_text("\n".join(L), encoding="utf-8")
+    path.write_text(with_preamble("\n".join(L), m["synthetic"]), encoding="utf-8")
 
 
 if __name__ == "__main__":
