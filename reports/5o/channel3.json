@@ -1,0 +1,94 @@
+[
+  {
+    "region": "Костанайская область",
+    "spikes": 42,
+    "tail_median": 1.5,
+    "tail_p75": 3.75,
+    "tail_max": 23,
+    "excess_median": 6.5,
+    "censored": 0,
+    "services_3plus": 1,
+    "topics_with_5_services": 0,
+    "shift": {
+      "median_rho": 0.45281632721050435,
+      "noise": false
+    },
+    "last_year": {
+      "spikes": 0,
+      "p": null,
+      "noise": true,
+      "checked": false
+    },
+    "counted_region": false,
+    "counted_services": false
+  },
+  {
+    "region": "Туркестанская область",
+    "spikes": 57,
+    "tail_median": 2.0,
+    "tail_p75": 4.0,
+    "tail_max": 61,
+    "excess_median": 7.0,
+    "censored": 0,
+    "services_3plus": 4,
+    "topics_with_5_services": 0,
+    "shift": {
+      "median_rho": 0.3736538790958731,
+      "noise": false
+    },
+    "last_year": {
+      "spikes": 5,
+      "p": null,
+      "noise": true,
+      "checked": false
+    },
+    "counted_region": false,
+    "counted_services": false
+  },
+  {
+    "region": "Восточно-Казахстанская область",
+    "spikes": 77,
+    "tail_median": 2.0,
+    "tail_p75": 4.0,
+    "tail_max": 30,
+    "excess_median": 26.5,
+    "censored": 0,
+    "services_3plus": 4,
+    "topics_with_5_services": 0,
+    "shift": {
+      "median_rho": 0.12057337350692932,
+      "noise": false
+    },
+    "last_year": {
+      "spikes": 47,
+      "p": 0.013183540807745461,
+      "noise": false,
+      "checked": true
+    },
+    "counted_region": true,
+    "counted_services": false
+  },
+  {
+    "region": "Алматинская область",
+    "spikes": 42,
+    "tail_median": 1.0,
+    "tail_p75": 2.0,
+    "tail_max": 17,
+    "excess_median": 7.5,
+    "censored": 0,
+    "services_3plus": 0,
+    "topics_with_5_services": 0,
+    "shift": {
+      "median_rho": 0.19287704146087803,
+      "noise": false
+    },
+    "last_year": {
+      "spikes": 0,
+      "p": null,
+      "noise": true,
+      "checked": false
+    },
+    "counted_region": false,
+    "counted_services": false
+  }
+]
