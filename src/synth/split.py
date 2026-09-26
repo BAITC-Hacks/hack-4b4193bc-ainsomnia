@@ -74,6 +74,12 @@ def groups(rows: list[dict]) -> tuple[list[list[int]], int]:
     return list(by_root.values()), near_pairs
 
 
+def effective_size(texts) -> int:
+    """Сколько различных текстов остаётся после схлопывания почти-дублей
+    тем же правилом, что в проверке корпуса (Jaccard 5-грамм >= JACCARD)."""
+    return len(groups([{"text": str(t)} for t in texts])[0])
+
+
 def assign(rows: list[dict]) -> tuple[list[dict], dict]:
     """Возвращает строки со split/group и числовую диагностику разбиения."""
     if not rows:

@@ -84,6 +84,20 @@ def build() -> dict:
     actual_counts = Counter((r["label"], r["lang"]) for r in c_rows)
     if actual_counts != expected_counts:
         raise ValueError("нарушены объёмы классов или языков C")
+    c_groups, c_near_pairs = groups(c_rows)
+    if any(len({(c_rows[i]["label"], c_rows[i]["lang"]) for i in g}) > 1
+           for g in c_groups):
+        raise ValueError("почти-дубли C смешивают темы или языки — "
+                         "запись о причине повторов в описи неверна")
+    c_effective = {
+        "near_duplicate_pairs": c_near_pairs,
+        "effective_texts": len(c_groups),
+        "effective_by_language": dict(sorted(Counter(
+            c_rows[g[0]]["lang"] for g in c_groups).items())),
+        "cause": "по построению: 3 ситуации × 4 рамки на класс и язык, в трёх "
+                 "рамках из четырёх меняется только город; группы не смешивают "
+                 "разные ситуации или рамки",
+    }
     combined_groups, combined_near_pairs = groups(a_rows + c_rows)
     cross_groups = sum(
         any(i < len(a_rows) for i in group)
@@ -138,6 +152,7 @@ def build() -> dict:
                     "C": {"Codex": len(c_rows)}},
         "a_by_class_language": dict(sorted(counts.items())),
         "c_per_class_language": 40,
+        "c_near_duplicates": c_effective,
         "noise": noise,
         "split": split_summary,
         "a_c_near_duplicate_groups": cross_groups,

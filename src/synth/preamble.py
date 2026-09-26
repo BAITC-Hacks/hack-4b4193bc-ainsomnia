@@ -10,6 +10,20 @@ PREAMBLE = (
 )
 
 
+def is_template_set(ids) -> bool:
+    """Набор целиком из шаблонного генератора C (id вида C-…)."""
+    ids = [str(i) for i in ids]
+    return bool(ids) and all(i.startswith("C-") for i in ids)
+
+
+def c_caveat(effective: int, n: int) -> str:
+    """Оговорка к любому числу, посчитанному на C: шаблоны повторяют одну
+    ситуацию с другим городом, и различных текстов меньше, чем строк."""
+    return (f"посчитано на шаблонах C: после схлопывания почти-дублей "
+            f"(Jaccard 5-грамм ≥ 0.8) различных текстов {effective} из {n} — "
+            f"эффективный объём теста меньше {n}")
+
+
 def with_preamble(text: str, synthetic: bool) -> str:
     if not synthetic:
         return text

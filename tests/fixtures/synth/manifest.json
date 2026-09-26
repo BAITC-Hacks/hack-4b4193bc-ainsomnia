@@ -107,6 +107,15 @@
     }
   },
   "c_per_class_language": 40,
+  "c_near_duplicates": {
+    "near_duplicate_pairs": 1114,
+    "effective_texts": 514,
+    "effective_by_language": {
+      "kk": 244,
+      "ru": 270
+    },
+    "cause": "по построению: 3 ситуации × 4 рамки на класс и язык, в трёх рамках из четырёх меняется только город; группы не смешивают разные ситуации или рамки"
+  },
   "noise": {
     "typo": {
       "count": 155,

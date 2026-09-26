@@ -14,6 +14,8 @@ def render(manifest: dict) -> str:
     if manifest.get("scope") != PREAMBLE:
         raise ValueError("опись синтетики не содержит обязательную преамбулу")
     split = manifest["split"]
+    c_eff = manifest["c_near_duplicates"]
+    c_lang = c_eff["effective_by_language"]
     privacy = manifest["privacy"]
     review = privacy["manual_review"]
     if not isinstance(review, dict) or review.get("a_read") != 200 or review.get("c_read") != 100:
@@ -37,6 +39,17 @@ def render(manifest: dict) -> str:
         f"Найдено почти-дублей внутри A: {split['near_duplicate_pairs']} пар; "
         "они объединяются в группы до разбиения. "
         f"Между A и C: {manifest['a_c_near_duplicate_groups']} групп.",
+        "",
+        f"**Эффективный объём C — {c_eff['effective_texts']} различных текстов "
+        f"из {manifest['c_rows']:,}** (русских {c_lang['ru']}, казахских "
+        f"{c_lang['kk']} — из {manifest['c_rows'] // 2} каждого языка): внутри C "
+        f"{c_eff['near_duplicate_pairs']:,} пар почти-дублей по тому же порогу "
+        "Jaccard 5-грамм ≥ 0.8, после схлопывания остаётся столько групп. "
+        "Причина — построение шаблонов, не сбой подстановки: на класс и язык "
+        "3 ситуации × 4 рамки, в трёх рамках из четырёх меняется только город, "
+        "и ни одна группа не смешивает разные ситуации или рамки. По содержанию "
+        "C — 3 ситуации на класс и язык. Любое число, посчитанное на C, "
+        "относится к этому эффективному объёму, а не к 1 200.",
         "",
         "| Шум | Применено | Подходящих текстов | Доля |",
         "|---|---:|---:|---:|",
