@@ -1,32 +1,34 @@
-# Атомарное обновление: проект миграции
+# Atomic refresh — реализованный P3
 
-Реализация отложена. Сейчас `src.cli.build_data` пишет пять шагов в действующие `data/`, а `paths.py` фиксирует пути при импорте; forecast и риск используют отдельные каталоги отчётов. `last_build.json` блокирует витрину при неуспехе, но не возвращает старые файлы. Подмена одного symlink без закрепления release у всех читателей оставила бы смешанные версии. Поэтому минимальный wrapper не даёт обещанной атомарности.
-
-Будущее размещение на одном файловом томе:
+Постановка — CLAUDE.md, P3. Legacy nazar-build-data по-прежнему поэтапный; новый nazar-refresh включается явно через NAZAR_RUNTIME_DIR. Без этой переменной прежние команды/пути не меняются.
 
 ```text
-releases/
-  staging-<id>/
-  <release-id>/
+runtime/
+  SOURCE
+  CURRENT
+  writer.lock
+  releases/<id>/
     data/
     reports/
-    release.json
-current -> releases/<release-id>
-build-status/last-attempt.json
+    models/
+    manifest/raw.json
+    metadata.json
+  inputs/<id>/
+  logs/<id>.jsonl
 ```
 
-Только один writer под эксклюзивной блокировкой. Он получает неизменяемый снимок разрешённого сырья; исходный manifest проверяется до и после чтения. Порядок: raw schema/date validation → manifest verification → adapters → unified → labeling → Data Health → spikes → forecast → проверки источника/схем/ПДн/числовых инвариантов → publish. Текущий `nazar-build-data` пока НЕ выполняет все эти этапы в release.
+CURRENT — небольшой файл ID, единственная точка commit. Новый релиз создаётся отдельно с status building; source и принятый manifest проверяются, сырьё копируется в локальный снимок inputs и проверяется до/после использования. Эти снимки содержат ПДн, не коммитятся, не попадают в образ/backup автоматически и не удаляются самовольно. Переключение не копирует данные: temp → fsync/close → os.replace → fsync каталога. До него готовые файлы, metadata и каталоги fsync; symlink релизов/артефактов запрещён.
 
-`release.json` содержит source, dataset_id, mapping_revision, версию кода, hashes всех обязательных результатов, время, перечень успешных проверок, допускаемые unavailable-модули и ссылки на отдельно проверенные артефакты риска. Forecast может быть явно unavailable по правилам допуска; ошибка выполнения не эквивалентна unavailable и запрещает publish. Риск не переобучляется автоматически. Старый risk artifact допустим только как явно исторический результат с собственными периодом/manifest/hash; его нельзя объявить прогнозом новой выгрузки.
+Существующие модули выполняются отдельными процессами: adapters → unified → mapping → labeling → health → spikes → forecast → checks. Второго детектора, адаптеров или forecast logic нет. Только фиксированные JSONL события, stdout/stderr стадий не пересылаются в журнал. Flock исключает второго writer/rollback; lock освобождается процессом/ОС, файл не удаляется. На macOS/Linux используются стандартные os/fcntl, сетевые файловые системы не заявлены поддержанными.
 
-После проверок: fsync файлов/каталогов → rename staging в окончательный release → создание временной ссылки → `os.replace` указателя `current` на том же томе → fsync родителя. До replace ошибка оставляет current прежним. После replace новый release должен быть целиком завершён; сбой записи журнала не делает его незавершённым. Failure metadata пишется отдельно от текущего release и не содержит сырых значений. Незавершённые каталоги не читаются. Удаление/GC — только после отдельного разрешения и retention policy.
+Metadata: release_id, created_at, source, raw_manifest_hash, row_count, regions, class_counts, mapping_version, status, build_steps, previous_release, artifacts/checksums и optional risk hashes. На диске завершённый metadata остаётся ready и неизменяемым; active определяется принадлежностью CURRENT. Так нет ложной транзакции сразу над pointer и несколькими metadata. Failed stage получает failed и failure_component; SIGKILL может оставить building, который не публикуется. Kill после READY, но до switch оставляет проверенный неактивный релиз. Ошибка после commit не переименовывает валидный CURRENT в failed.
 
-Миграция по шагам:
+Риск не обучается. --risk-from явно копирует согласованный источник с тем же dataset_id; hashes сохраняются, чтение риска и разложение крайних позиций проверяются. Без него риск unavailable, не нулевая очередь. Не допускается писать build/train в READY release штатными командами.
 
-1. Ввести явный immutable ReleasePaths во всех writer/read API, сохранить нынешние source/fingerprint ограничения. Не открывать real `NAZAR_WORK_DIR` как обход защиты.
-2. Научить CLI запускать каждый шаг с одним release context. Побочные записи в текущие data/reports запрещены тестом.
-3. Dashboard/service/cache/export закрепляют resolved current один раз на запрос/сессию экспорта; кэш включает release_id, mapping_revision и будущий auth scope.
-4. Запустить staging в shadow-режиме на FAKE, сравнить с прежним конвейером; затем на разрешённом REAL. Проверить ready files.
-5. Провести failure injection, затем разрешить atomic publish. Scheduler подключать только после определения канала, частоты и SLA обновления заказчиком.
+Каждый dashboard-процесс закрепляет один CURRENT при запуске: нет смешения старых/новых data/reports, в UI указан ID. После успешного refresh/rollback нужен **явный restart dashboard**. Hot-swap работающих сессий не реализован. nazar-health проверяет текущий указатель, а не обещает, что старый процесс уже перезапущен. Для переключения без рестарта впоследствии нужен отдельный request-scoped release context — сейчас этого обещания нет.
 
-Обязательные failure tests: отказ каждого из десяти этапов; kill writer до/после rename и до/после replace; заполненный диск; изменение raw во время чтения; competing writers; повреждённый manifest/result hash; чтение во время переключения; удалённая цель ссылки; различный source; экспорт, начатый на предыдущем release. Проверка — current прежний при pre-publish ошибке, читатель видит одну полную версию, risk hash не меняется. Пока эти тесты и runner не реализованы; атомарность остаётся deployment blocker.
+nazar-rollback --release ID: под writer lock проверяет source, READY, mapping и все hashes; затем тот же atomic switch. Пересборки и удаления нет. Failed и building запрещены; предыдущий release остаётся. Повреждённый текущий набор не считается ready, восстановление — из проверенного release/backup, не из частично изменённого каталога.
+
+Тесты tests/test_releases.py выполняют настоящий FAKE build и failure injection: adapters, labeling, повреждённый unified, неверный SOURCE, interrupt перед publish, отсутствующий raw, плохая схема/manifest, read-only release directory, повторный publish и rollback. Сверяются pointer, hashes старой версии и её readiness. Отдельно проверяется отказ readiness при повреждённом профиле. Полный power-loss/fsync hardware test и запуск Docker — не проводились; это граница локальной приёмки, а не обещание устойчивости любой FS.
+
+Эксплуатационные команды и права — [deployment.md](deployment.md); [backup/restore](backup.md). Scheduler, уведомления и автоматическая очистка не добавлены.
