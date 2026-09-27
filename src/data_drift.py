@@ -9,6 +9,9 @@ def compare(current, previous):
         return {"available": False, "reason": "Нет предыдущей успешной версии", "changes": []}
     if current["source"] != previous["source"]:
         raise ValueError("Cannot compare different sources")
+    if current.get("mapping_revision") != previous.get("mapping_revision"):
+        return {"available": False, "reason": "Изменилась версия разметки тем; сравнение входного потока недоступно",
+                "previous_dataset_id": previous["dataset_id"], "changes": []}
     changes = []
 
     def add(region, field, before, after, warning):

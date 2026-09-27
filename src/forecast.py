@@ -325,6 +325,55 @@ def mean_mae(res, model):
     return float(np.mean(vals)) if vals else float("nan")
 
 
+def forward_choice(s, horizon, res, tr=None):
+    """Shared choice, unchanged from the accepted forward report logic."""
+    matched = None
+    fwd_end = pd.date_range(s.index.max(), periods=horizon + 1, freq="W-MON")[-1]
+    r_lvl = level_change(s, s.index.max().month, fwd_end.month)
+    lvl = "×?" if np.isnan(r_lvl) else (f"×{r_lvl:.0f}" if r_lvl >= 10 else f"×{r_lvl:.1f}")
+    if crosses_transition(s, s.index.max().month, fwd_end.month):
+        mf = matched_folds(s, horizon, s.index.max().month, fwd_end.month)
+        mm = {x: mean_mae_folds(mf, x) for x in MODELS} if mf else {}
+        avail = [x for x in mm if not np.isnan(mm[x])]
+        if len(mf) >= MIN_MATCHED and avail:
+            m = min(avail, key=lambda x: mm[x])
+            matched = [mf, mm, m, m]   # 4-й элемент — модель после защиты
+            why = (f"окно пересекает смену сезона (уровень {lvl}); модель — по "
+                   f"{len(mf)} отсечкам того же перехода")
+        elif tr:
+            m = tr["модель"]
+            why = (f"окно пересекает смену сезона (уровень {lvl}); отсечек того же "
+                   "перехода мало, модель — по всем переходным отсечкам")
+        else:
+            # Плоский прогноз — константа; смену уровня в разы он отследить не может
+            # в принципе, независимо от того, что показала скользящая проверка.
+            # Переходных отсечек в этом ряду нет, сравнить наивный с сезонным
+            # на них не на чем — берём лучший из двух по обычной проверке.
+            cand = [x for x in MODELS if x != "плоский" and not np.isnan(mean_mae(res, x))]
+            if not cand:
+                return None
+            m = min(cand, key=lambda x: mean_mae(res, x))
+            why = (f"окно пересекает смену сезона (уровень {lvl}); переходных отсечек "
+                   "в ряду нет, плоский исключён как константа")
+    else:
+        m = min((x for x in MODELS if not np.isnan(mean_mae(res, x))),
+                key=lambda x: mean_mae(res, x))
+        why = f"смены сезона в окне нет (уровень {lvl}) — по скользящей проверке"
+    # Защита уровня живёт внутри модели (level_guarded) и действует одинаково
+    # в бэктесте и здесь. Тут она только переименовывает модель: если поправка
+    # отключена, «сезонный» численно совпадает с наивным, и называть его
+    # сезонным значило бы показывать не ту модель, которая посчитана.
+    if m == "сезонный":
+        _, guarded, (now, then, k) = level_guarded(s)
+        if guarded:
+            m = "наивный"
+            why += (f"; поправка на уровень отключена — она опиралась бы на медианы "
+                    f"{now:.0f} и {then:.0f} обращений в неделю (k={k:.2f})")
+            if matched is not None:
+                matched[3] = m
+    return m, why, matched
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--horizon", type=int, default=13)
@@ -570,50 +619,12 @@ def main():
             continue
         r, t = key
         name = r.replace(" область", "") + ("" if t is None else f" · {t}")
-        fwd_end = pd.date_range(s.index.max(), periods=a.horizon + 1, freq="W-MON")[-1]
-        tr = transition.get(key)
-        r_lvl = level_change(s, s.index.max().month, fwd_end.month)
-        lvl = "×?" if np.isnan(r_lvl) else (f"×{r_lvl:.0f}" if r_lvl >= 10 else f"×{r_lvl:.1f}")
-        if crosses_transition(s, s.index.max().month, fwd_end.month):
-            mf = matched_folds(s, a.horizon, s.index.max().month, fwd_end.month)
-            mm = {x: mean_mae_folds(mf, x) for x in MODELS} if mf else {}
-            avail = [x for x in mm if not np.isnan(mm[x])]
-            if len(mf) >= MIN_MATCHED and avail:
-                m = min(avail, key=lambda x: mm[x])
-                matched_report[key] = [mf, mm, m, m]   # 4-й элемент — модель после защиты
-                why = (f"окно пересекает смену сезона (уровень {lvl}); модель — по "
-                       f"{len(mf)} отсечкам того же перехода")
-            elif tr:
-                m = tr["модель"]
-                why = (f"окно пересекает смену сезона (уровень {lvl}); отсечек того же "
-                       "перехода мало, модель — по всем переходным отсечкам")
-            else:
-                # Плоский прогноз — константа; смену уровня в разы он отследить не может
-                # в принципе, независимо от того, что показала скользящая проверка.
-                # Переходных отсечек в этом ряду нет, сравнить наивный с сезонным
-                # на них не на чем — берём лучший из двух по обычной проверке.
-                cand = [x for x in MODELS if x != "плоский" and not np.isnan(mean_mae(res, x))]
-                if not cand:
-                    continue
-                m = min(cand, key=lambda x: mean_mae(res, x))
-                why = (f"окно пересекает смену сезона (уровень {lvl}); переходных отсечек "
-                       "в ряду нет, плоский исключён как константа")
-        else:
-            m = min((x for x in MODELS if not np.isnan(mean_mae(res, x))),
-                    key=lambda x: mean_mae(res, x))
-            why = f"смены сезона в окне нет (уровень {lvl}) — по скользящей проверке"
-        # Защита уровня живёт внутри модели (level_guarded) и действует одинаково
-        # в бэктесте и здесь. Тут она только переименовывает модель: если поправка
-        # отключена, «сезонный» численно совпадает с наивным, и называть его
-        # сезонным значило бы показывать не ту модель, которая посчитана.
-        if m == "сезонный":
-            _, guarded, (now, then, k) = level_guarded(s)
-            if guarded:
-                m = "наивный"
-                why += (f"; поправка на уровень отключена — она опиралась бы на медианы "
-                        f"{now:.0f} и {then:.0f} обращений в неделю (k={k:.2f})")
-                if key in matched_report:
-                    matched_report[key][3] = m
+        choice = forward_choice(s, a.horizon, res, transition.get(key))
+        if choice is None:
+            continue
+        m, why, matched = choice
+        if matched is not None:
+            matched_report[key] = matched
         pred = forecast(s, a.horizon, m)
         if pred is None:
             continue

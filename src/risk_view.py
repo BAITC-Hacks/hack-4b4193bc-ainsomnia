@@ -148,6 +148,22 @@ def risk_section(st):
         f"({sel['base']:.1%}).  \n**Что это значит:** проверяя по этому списку, а не "
         f"наугад, на просрочку попадают в {sel['precision'] / sel['base']:.2f} раза "
         f"чаще.")
+    with st.expander("Признаки, повысившие оценку модели"):
+        st.caption("Ассоциации модели, не причины просрочки. Вклад в logit, не процент. "
+                   "Значения справочников скрыты: они могут содержать персональные данные.")
+        if sel["n"]:
+            rank = st.number_input("Позиция в показанной очереди", min_value=1, max_value=sel["n"], value=1)
+            from src.risk_explanation import explain_rank
+            explanation = explain_rank(int(rank)-1)
+            if explanation["available"]:
+                if explanation["top"]:
+                    st.dataframe(pd.DataFrame(explanation["top"]).rename(columns={
+                        "feature": "Признак", "contribution_logit": "Вклад в logit"}), hide_index=True)
+                else:
+                    st.info("Положительных вкладов нет; итог включает свободный член модели.")
+                st.caption("Сумма вкладов и свободный член восстановили сохранённую оценку.")
+            else:
+                st.info(explanation["reason"])
     right.metric("Из 10% самых рискованных просрочены", f"{top10['precision']:.1%}",
                  f"наугад — {h['base']:.1%}", delta_color="off")
     right.caption(f"В {top10['precision'] / h['base']:.2f} раза чаще, чем при выборе "
