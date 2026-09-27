@@ -3,21 +3,23 @@ import json
 import pandas as pd
 
 from src.data_health import load
+from src.ui.health import health_overview, freshness_chart
 
 
 def health_section(st):
-    st.subheader("Качество и свежесть данных")
     current, blocked = load()
     if blocked:
+        st.subheader("Качество и свежесть данных")
         st.error("BLOCKED — " + blocked)
         return True
     if current is None:
+        st.subheader("Качество и свежесть данных")
         st.warning("WARNING — нет профиля качества этой сборки. Выполните nazar-build-data.")
         return False
-    st.caption(f"Источник: {current['source']} · сборка UTC: {current['built_at']} · "
-               f"версия: {current['dataset_id'][:12]}. Схема проверена при сборке, "
-               "fingerprint канона совпадает. Сырьё при просмотре страницы не перечитывается.")
-    st.markdown("**До какой даты мы видим каждый регион?**")
+    health_overview(st, current)
+    st.subheader("Периоды наблюдений")
+    st.plotly_chart(freshness_chart(current), width="stretch", key="freshness_timeline")
+    st.caption("Разрывы — периоды без данных ≥7 дней. Это не отсутствие жалоб. Караганда — историческое окно; срок обновления не согласован.")
     freshness, quality, completeness, classes = [], [], [], []
     for region, item in current["regions"].items():
         gaps = item["gaps_ge7"]
@@ -27,7 +29,7 @@ def health_section(st):
                           "Forecast": "доступен" if item["forecast"]["available"] else "не применяется",
                           "Почему": item["forecast"]["reason"]})
         dropped = item["discarded"] or {}
-        quality.append({"Регион": region, "Статус": item["status"], "Строк": item["rows"],
+        quality.append({"Регион": region, "Статус": {"OK":"Данные готовы","WARNING":"Есть ограничения","BLOCKED":"Использовать нельзя"}.get(item["status"],"Не определено"), "Строк": item["rows"],
                         "Дней с наблюдениями": item["observed_days"], "Самый длинный пропуск, дней": item["longest_gap"],
                         "Пропусков ≥7 дней": len(gaps), "Новых категорий": item["new_categories"],
                         "Отсев сдвига полей": dropped.get("field_shift_dropped"),
@@ -36,10 +38,11 @@ def health_section(st):
                         "Причины": "; ".join(item["reasons"]) or "Правила предупреждений не сработали"})
         completeness.append({"Регион": region, **{key: round(value * 100, 2) for key, value in item["completeness"].items()}})
         classes.append({"Регион": region, **{key: round(value * 100, 2) for key, value in item["class_shares"].items()}})
-    st.dataframe(pd.DataFrame(freshness), hide_index=True, width="stretch")
-    st.caption("Даты относятся к выгрузке, а не к сегодняшнему дню. Частота обновления не согласована. "
-               "Forecast считает жалобы, не все контакты. Историческое окно Караганды подписано отдельно.")
-    st.dataframe(pd.DataFrame(quality), hide_index=True, width="stretch")
+    with st.expander("Даты, пропуски и причины ограничений по регионам"):
+        st.dataframe(pd.DataFrame(freshness), hide_index=True, width="stretch")
+        st.caption("Даты относятся к выгрузке, а не к сегодняшнему дню. Частота обновления не согласована. "
+                   "Forecast считает жалобы, не все контакты. Историческое окно Караганды подписано отдельно.")
+        st.dataframe(pd.DataFrame(quality), hide_index=True, width="stretch")
     with st.expander("Полнота полей, состав потока и правила качества"):
         st.write("Заполненность полей, %. Пустое опциональное поле означает ограничение наблюдаемости. "
                  "Полнота не доказывает полезность: район может быть константой.")

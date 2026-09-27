@@ -15,7 +15,7 @@ def apply_theme(st, presentation=False):
     if presentation:
         css += '''[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {display:none}
         .nazar-metric-value {font-size:44px!important}
-        .nazar-help {display:none}'''
+        .nazar-help, [data-testid="stExpander"]:has(.nazar-help-marker) {display:none}'''
     st.markdown('<style>'+css+'</style>', unsafe_allow_html=True)
 
 
@@ -27,6 +27,11 @@ def chart(fig):
                       legend=dict(title_text='',orientation='h',y=-.2,x=0),
                       hoverlabel=dict(bgcolor='white',font_size=13),
                       modebar=dict(bgcolor='rgba(0,0,0,0)',color=GREY,activecolor=NAVY))
+    for i,trace in enumerate(fig.data):
+        if trace.type=='scatter' and str(trace.name).endswith('область'):
+            trace.update(line_color=PALETTE[i % len(PALETTE)])
+        if trace.type=='bar' and trace.name in ('Жалобы на городские проблемы','Справочные звонки','Служебные записи'):
+            trace.update(marker_color={'Жалобы на городские проблемы':NAVY,'Справочные звонки':TEAL,'Служебные записи':GREY}[trace.name])
     fig.update_xaxes(gridcolor='#EDF1F5',zeroline=False,automargin=True)
     fig.update_yaxes(gridcolor='#EDF1F5',zeroline=False,automargin=True)
     return fig
