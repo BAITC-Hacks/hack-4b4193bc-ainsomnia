@@ -400,7 +400,7 @@ def compare_operating_points(y, p_base, p_model, results, main_key):
     return out
 
 def write_baseline_report(y, ops, results, main_key):
-    """reports/baseline_vs_model.md — идёт в слайды напрямую."""
+    """reports/baseline_vs_model.md — агрегатный отчёт: справочник против модели."""
     n, pos = len(y), int(y.sum())
     base_rate = pos / n
     L = ops["lift"]
@@ -494,7 +494,7 @@ def write_baseline_report(y, ops, results, main_key):
     md.append("Справочник остаётся честной нижней планкой: он не требует обучения, "
               "обновляется одним `groupby` и закрывает "
               f"{100*L['pr_auc']['baseline_share']:.0f}% прироста по PR-AUC. "
-              "Показывать его на защите как точку отсчёта, а не как альтернативу.\n")
+              "Он — точка отсчёта, а не альтернатива модели.\n")
     md.append("\n---\n")
     md.append("Таргет: `days > 15` суток. Порог взят из ТЗ, нормативом не является и "
               "остаётся **открытым вопросом** — см. CLAUDE.md, раздел 3.\n")
