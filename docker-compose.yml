@@ -15,6 +15,7 @@ services:
     volumes:
       - ./data:/app/data:ro
       - ./reports:/app/reports:ro
+      - ./models:/app/models:ro
     restart: unless-stopped
 
   # Сборка data/unified.parquet из сырых выгрузок — та же команда, что без контейнера

@@ -4,11 +4,13 @@
 
 | Роль | Разрешения |
 |---|---|
-| viewer | Чтение в разрешённых регионах |
-| analyst | Чтение, экспорт, будущий feedback в разрешённых регионах |
-| admin | Чтение и build/config; экспорт и feedback только при отдельном разрешении analyst |
+| viewer | Dashboard и чтение brief в разрешённых регионах |
+| analyst | Dashboard/brief, выгрузки (включая файлы brief), будущий feedback в разрешённых регионах |
+| admin | Refresh, rollback и operational configuration; доступ к аналитике/export/feedback требует соответствующей отдельной роли |
 
 Региональная видимость configurable. Scope применяется в service-layer до агрегации, к очереди, риску, brief и выгрузкам; скрытая вкладка не является защитой. Неизвестная роль, пустой scope, недействительная сессия — отказ, не доступ ко всем регионам. Кэш обязан включать проверенный scope; при смене пользователя данные предыдущего не переиспользуются.
+
+**OIDC configuration = EXTERNAL.** Реальные назначения ролей и `allowed_regions` не заданы; здесь только контракт, а не действующее разграничение.
 
 От заказчика нужны issuer/discovery URL, client registration, redirect/logout URLs, допустимые audience, mapping ролей и регионов, требования MFA/сроков сессии и secret store. Токены проверяются по подписи и актуальным ключам, issuer/audience/expiry; login flow — через поддерживаемую OIDC-интеграцию с state/nonce/PKCE по выбранному клиенту. Значения и поставщик пока не выбраны. Секреты не попадают в git, Docker image, отчёты и логи.
 

@@ -40,7 +40,11 @@ def sections(snapshot):
 
 def header_lines(snapshot, generated_at):
     health = snapshot.get('health')
-    return ([f'Создано UTC: {generated_at}', 'ПОДДЕЛЬНЫЕ ДАННЫЕ — числа не описывают ни один регион.']
+    totals=snapshot.get('summary')
+    summary=([f"Всего строк: {totals['row_count']}; классы: "
+              f"{json.dumps(totals['class_counts'],ensure_ascii=False,sort_keys=True)}; "
+              f"всего действий: {totals['action_count']}; всех всплесков: {totals['spike_count']}."] if totals else [])
+    return summary + ([f'Создано UTC: {generated_at}', 'ПОДДЕЛЬНЫЕ ДАННЫЕ — числа не описывают ни один регион.']
             if snapshot['source']=='fake' else [f'Создано UTC: {generated_at}', 'Источник: REAL']) + [
         'DATA AS OF: '+('; '.join(f"{reg}: {h['last_date']}" for reg,h in sorted(health['regions'].items()))
                         if health else 'данные недоступны')]

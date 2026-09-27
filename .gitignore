@@ -50,3 +50,8 @@ fake_run/
 *.pem
 *.key
 .streamlit/secrets.toml
+runtime/
+runtime-unavailable/
+credentials
+secrets
+!/.env.example

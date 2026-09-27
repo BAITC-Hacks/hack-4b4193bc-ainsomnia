@@ -28,3 +28,11 @@ docs/
 **/*.pem
 **/*.key
 .streamlit/secrets.toml
+runtime/
+runtime-unavailable/
+fake_run/
+credentials
+secrets
+# Только заведомо поддельная fixture 5p нужна для FAKE deployment.
+!tests/fixtures/fake_export/
+!tests/fixtures/fake_export/**

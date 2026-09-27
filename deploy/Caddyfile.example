@@ -1,0 +1,6 @@
+# TEMPLATE ONLY. Replace the placeholder with the approved DNS name.
+# Caddy runs on the HOST; 127.0.0.1 is the host's published Docker port.
+# Until OIDC/access policy is approved, use only FAKE behind approved access.
+nazar.example.kz {
+    reverse_proxy 127.0.0.1:8501
+}

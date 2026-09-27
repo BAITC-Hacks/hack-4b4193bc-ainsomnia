@@ -1,0 +1,36 @@
+# Opt-in release deployment; no change to legacy docker-compose.yml commands.
+# Host directories must exist and be writable by container UID 1000 for refresh.
+services:
+  dashboard:
+    build:
+      context: ..
+    image: nazar-109:local
+    environment:
+      NAZAR_SOURCE: ${NAZAR_SOURCE:?Set fake or real}
+      NAZAR_RUNTIME_DIR: /runtime
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - ${NAZAR_RUNTIME_HOST:?Set dedicated runtime directory}:/runtime:ro
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+      - /home/app:uid=1000,gid=1000,mode=0700
+    restart: unless-stopped
+
+  refresh:
+    image: nazar-109:local
+    profiles: ["operations"]
+    command: ["nazar-refresh"]
+    environment:
+      NAZAR_SOURCE: ${NAZAR_SOURCE:?Set fake or real}
+      NAZAR_RUNTIME_DIR: /runtime
+      NAZAR_RAW_DIR: /inputs
+    volumes:
+      - ${NAZAR_RUNTIME_HOST:?Set dedicated runtime directory}:/runtime
+      - ${NAZAR_RAW_HOST:?Set approved raw directory}:/inputs:ro
+      - ${NAZAR_MANIFEST_DIR:?Set manifest directory}:/manifests:ro
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+      - /home/app:uid=1000,gid=1000,mode=0700

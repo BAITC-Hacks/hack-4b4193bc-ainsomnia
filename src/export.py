@@ -78,6 +78,13 @@ def limits_block(regions, period, filters=(), path=CLAUDE_MD):
 
 
 # ---------------------------------------------------------------- таблицы
+def summary_counts(df):
+    """Same counted regional table for dashboard, operational snapshot and exports."""
+    regions=sheet_regions(df)
+    return {'row_count':int(regions['всего'].sum()),
+            'class_counts':{k:int(regions[v].sum()) for k,v in CLASS_COLS.items()}}
+
+
 def sheet_regions(df):
     """Сводка по регионам: всего и по классам обращения."""
     g = (df.pivot_table(index="region", columns="appeal_class", values="created_at",

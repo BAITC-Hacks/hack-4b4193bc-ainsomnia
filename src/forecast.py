@@ -375,6 +375,7 @@ def forward_choice(s, horizon, res, tr=None):
 
 
 def main():
+    paths.require_writable()
     ap = argparse.ArgumentParser()
     ap.add_argument("--horizon", type=int, default=13)
     ap.add_argument("--keep-first-month", action="store_true")

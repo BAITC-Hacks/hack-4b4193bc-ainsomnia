@@ -23,8 +23,17 @@ def unavailable(reason, health=None):
 
 
 def snapshot(revision_key=None):
+    if paths.RUNTIME:
+        from src.release_store import verify_release
+        try:
+            verify_release(paths.RUNTIME, paths.RELEASE_ID, paths.SOURCE)
+        except (ValueError, OSError, KeyError, TypeError):
+            return unavailable('Закреплённый release повреждён; проверьте readiness и rollback')
     before = revision()
-    health, blocked = load()
+    try:
+        health, blocked = load()
+    except paths.SourceError:
+        return unavailable('Источник данных не согласован; проверьте SOURCE и сборку')
     if blocked or health is None:
         result = unavailable(blocked or 'Нет профиля качества этой сборки',health)
         if not blocked:
@@ -40,6 +49,9 @@ def snapshot(revision_key=None):
         result = dict(available=True, source=health['source'], health=health, actions=items,
                       forecasts=f, risk=risk, recurrence=recurrence(events,health),
                       closure=load_closure(health), new_spikes=sum(x['type']=='NEW_SPIKE' for x in items))
+        from src.export import summary_counts
+        result['summary']=summary_counts(frame)
+        result['summary'].update(action_count=len(items),spike_count=len(events))
         if revision() != before:
             return unavailable('Сборка изменилась во время чтения; обновите страницу')
         return result

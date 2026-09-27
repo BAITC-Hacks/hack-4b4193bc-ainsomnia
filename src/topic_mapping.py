@@ -229,6 +229,7 @@ def audit_rules(df):
         print(f"  {r:.2f}  {n:7d} строк  «{th[:52]}»  ~  правило «{k}» ({topic})")
 
 def main():
+    paths.require_writable()
     paths.require_source_marker(paths.SOURCE_MARK)
     src = paths.UNIFIED
     if not src.exists():
