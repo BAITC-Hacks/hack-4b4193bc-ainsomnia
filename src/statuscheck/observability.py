@@ -98,11 +98,19 @@ def channel2(region, d):
     if closed_last == 1.0 and open_old.sum() == 0:
         return ("не считается", "выгрузка только закрытыми заявками — нужна выгрузка вместе "
                 "с незакрытыми (раздел 10, пункт 17)", note)
+    assumption = ""
     if region == "Акмолинская область":
-        note += ("; «Передано в службу » (64% строк) отнесено к незакрытым: для службы заявка "
-                 "не закрыта, но для 109 это может быть конечная точка — сверить с заказчиком")
+        # Допущение, не факт: от него зависит число незакрытых. Вопрос — раздел 10, пункт 20.
+        passed = d.status.astype(str).str.strip().eq("Передано в службу")
+        alt = int((open_old & ~passed).sum())
+        n = lambda x: f"{x:,}".replace(",", " ")   # только число: replace по строке съел бы запятые
+        assumption = (f"; ДОПУЩЕНИЕ: статус «Передано в службу» ({passed.mean():.0%} строк) "
+                      "считается незакрытым — для службы заявка не закрыта; если для 109 это "
+                      f"конечная точка, незакрытых старше 60 дней не {n(int(open_old.sum()))}, а "
+                      f"{n(alt)} (вопрос заказчику, раздел 10, пункт 20)")
+        note += assumption
     if d.executor.isna().all():
-        return "по региону", NO_EXECUTOR[region], note
+        return "по региону", NO_EXECUTOR[region] + assumption, note
     per = d[open_old].groupby("executor").size()
     svc = int((per >= CH2_MIN).sum())
     if svc < CELL_SERVICES:
