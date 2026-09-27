@@ -43,7 +43,7 @@ def _typo(text: str, rng: np.random.Generator) -> str:
 
 def apply_noise(rows: list[dict]) -> list[dict]:
     """Возвращает копии строк с текстом после шума и тремя булевыми флагами."""
-    from src.synth.checks import pii_hits
+    from src.checks.privacy import pii_hits
 
     rng = np.random.default_rng(SEED)
     allowed = {w for r in rows for s in (r["place"], r["street"] or "")

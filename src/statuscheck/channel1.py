@@ -38,7 +38,7 @@ from src.statuscheck.frame import FRAME
 from src.statuscheck.load import load
 from src.statuscheck.observability import CELL_COMPLAINTS, CELL_SERVICES, CH1_CLOSURES
 from src.checks.person_names import person_hits, safe as person_safe
-from src.synth.checks import pii_hits
+from src.checks.privacy import pii_hits
 
 OUT = paths.REPORTS_DIR / "5o"
 WINDOW, BURST, DAYS, SEED = 600, 5, 3, 42

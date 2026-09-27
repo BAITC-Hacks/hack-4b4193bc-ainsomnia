@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.synth.checks import pii_hits
+from src.checks.privacy import pii_hits
 from src.topic_mapping import TOPICS, norm
 
 OUT = Path("tests/fixtures/synth/templates_c.jsonl")

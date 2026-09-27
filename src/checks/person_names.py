@@ -23,7 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from src import paths
-from src.synth.checks import ALLOW, NAME_RE, SURNAME
+from src.checks.privacy import ALLOW, NAME_RE, SURNAME
 
 # Формы, которые всегда означают человека: индивидуальный предприниматель,
 # крестьянское (фермерское) хозяйство — по-русски и по-казахски.
