@@ -2341,6 +2341,14 @@ Legacy команды работают как прежде без NAZAR_RUNTIME_
 
 **Deployment только конфигурация и инструкции:** legacy compose loopback 127.0.0.1:8501; opt-in release compose, non-root UID и отдельные read-only/read-write mounts. Статическая проверка Docker/Chromium/Kaleido, compose config если инструмент доступен; без фактического контейнера не заявлять PDF в Docker. Один пример Caddy с nazar.example.kz (placeholder), реальный домен/доступ EXTERNAL. .env.example только пустые переменные; OIDC/S3 пока не требуются. docs/backup.md, auth.md, deployment.md, S3 contract и таблица external владельцев; retention/encryption/access/legal/OIDC/SLA/источник/уведомления не придумываются. После проверок обычный локальный merge publication, обе истории сохранены, аудит ПДн/секретов/запрещённых путей повторяется.
 
+### P3 — результат локальной приёмки (2026-09-27)
+
+Постановка `c6b0565` предшествует коду. Реализованы opt-in atomic refresh/rollback, закрытый JSONL operational log, readiness JSON exit 0/2, защита ACTIVE от legacy writers и проверка целостности reader. CURRENT — единственный commit marker; ready в metadata становится active через CURRENT. Dashboard закрепляет ID на процесс: после switch требуется явный restart. Risk training не запускается refresh автоматически.
+
+REAL: 988 776 строк, 1 225 всплесков, 16 действий, risk queue 4 048; канон/metrics/predictions/model/forecast совпадают с принятым baseline по SHA256; 5 вкладок, исключений 0. FAKE: 12 910 / 8 266–3 661–983 / один всплеск, 33 сценария изоляции. Готовые HTML/PDF/Excel/logs/metadata прочитаны проверкой: неразобранных ПДн 0. Подробные receipts, performance baseline и ограничения — `docs/p3-results.md`.
+
+Подготовлены backup/restore, auth roles/scopes, S3 contract, `.env.example` без значений, release compose с loopback publishing и Caddy placeholder. Docker/Caddy отсутствуют: только статическая проверка, YAML parse и shell syntax; работа PDF/Chromium внутри образа не подтверждена. Следующий допустимый этап — отдельный проверочный FAKE deployment после разрешения владельца; REAL зависит от внешних решений доступа/OIDC/шифрования/retention/legal. Push и изменения VPS/S3/DNS запрещены в текущей задаче.
+
 ## 6b. Принятые решения
 
 - **Приоритет на октябрь — углубление по Караганде, не подключение новых регионов.**

@@ -143,7 +143,14 @@ def rollback(root,source,identity):
     with store.writer_lock(root):
         log=logger(root/'logs'/'rollback.jsonl')
         try:
-            store.publish(root,identity,source)
+            previous=store.current_id(root)
+            try:
+                store.publish(root,identity,source)
+            except OSError:
+                # Rename may have committed before the parent-directory fsync failed.
+                # Never report that ACTIVE stayed unchanged after a completed switch.
+                if previous==identity or store.current_id(root)!=identity:
+                    raise
             emit(log,'rollback',identity,source,'rollback',status='active')
         finally:
             for h in log.handlers:

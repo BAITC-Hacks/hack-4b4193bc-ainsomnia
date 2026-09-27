@@ -53,6 +53,8 @@ def runtime_path(value, source, project):
     if source not in ('real','fake'):
         raise ReleaseError('Источник должен быть real или fake')
     project=Path(project).resolve()
+    if root.is_relative_to(project) and not root.is_relative_to(project/'runtime'):
+        raise ReleaseError('Внутри проекта runtime разрешён только в отдельном runtime/')
     protected=[project/n for n in ('data','reports','models','tests','src','analysis',
                                   'fake_run','drive-download-20260907T161509Z-1-001')]
     if root==project or any(root.is_relative_to(p) or p.is_relative_to(root) for p in protected):

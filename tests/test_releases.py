@@ -7,6 +7,16 @@ import unittest
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_runtime_cannot_overlap_project_directories(self):
+        from src.release_store import runtime_path, ReleaseError
+        from unittest.mock import patch
+        project=Path(__file__).resolve().parents[1]
+        with patch.dict(os.environ,{},clear=True):
+            for name in ('docs/runtime','deploy/runtime','.git/runtime','runtime-unavailable'):
+                with self.assertRaises(ReleaseError):
+                    runtime_path(project/name,'fake',project)
+            self.assertEqual(runtime_path(project/'runtime','fake',project),project/'runtime')
+
     def test_fake_lifecycle_in_isolated_process(self):
         env=os.environ.copy()
         for key in ('NAZAR_RUNTIME_DIR','NAZAR_WORK_DIR','NAZAR_RAW_DIR','_NAZAR_BUILD_RELEASE'):
@@ -126,6 +136,14 @@ def scenarios():
                 assert store.current_id(root)==third,'readiness altered CURRENT'
             finally: metrics.with_suffix('.missing').rename(metrics)
             cli('src.readiness',expected=0)
+            rollback(root,'fake',first)
+            publish=store.publish
+            def committed_then_failed(*args):
+                publish(*args)
+                raise OSError('injected post-commit directory sync failure')
+            with patch.object(store,'publish',side_effect=committed_then_failed):
+                rollback(root,'fake',second)
+            assert store.current_id(root)==second, 'rollback post-commit result'
             rollback(root,'fake',first)
             assert store.current_id(root)==first and health(root,'fake')['status']=='ready', 'rollback'
             assert store.release_path(root,second).exists(), 'rollback removed a release'
