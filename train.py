@@ -314,27 +314,46 @@ def _sweep(y, p):
     ys = y[o]; ps = p[o]
     k = np.arange(1, len(y) + 1)
     tp = np.cumsum(ys)
-    return ps, tp / k, tp / y.sum(), k
+    rec = tp / y.sum() if y.sum() else np.full(len(y), np.nan)
+    return ps, tp / k, rec, k
 
 def _at_threshold(y, p, thr):
     pred = (p >= thr).astype(int)
     tp = int(((pred == 1) & (y == 1)).sum()); fp = int(((pred == 1) & (y == 0)).sum())
     return {"threshold": float(thr), "n_flagged": int(pred.sum()),
             "precision": tp / (tp + fp) if tp + fp else 0.0,
-            "recall": tp / int(y.sum())}
+            "recall": tp / int(y.sum()) if y.sum() else None}
 
 def _point_for(y, p, target, metric):
     """Порог, при котором достигается заданный recall (или precision).
     Ties учитываются: берётся порог префикса, затем метрики пересчитываются
     правилом p >= thr, поэтому вся группа с равной вероятностью входит целиком."""
     ps, prec, rec, _ = _sweep(y, p)
-    idx = np.where(rec >= target)[0] if metric == "recall" else np.where(prec >= target)[0]
+    # Only ends of equal-score groups are attainable using p >= threshold.
+    ends = np.r_[ps[:-1] != ps[1:], True] if len(ps) else np.array([], dtype=bool)
+    eligible = rec >= target if metric == "recall" else prec >= target
+    idx = np.where(eligible & ends)[0]
     if len(idx) == 0:
         return None
     i = idx[0] if metric == "recall" else idx[-1]
     return _at_threshold(y, p, ps[i])
 
 def compare_operating_points(y, p_base, p_model, results, main_key):
+    reason = None
+    if not len(y) or len(np.unique(y)) != 2:
+        reason = "Нужна непустая выборка с обоими классами; ROC и сопоставление охвата не определены."
+    elif int(round(.10 * len(y))) == 0:
+        reason = "Топ-10% после округления содержит 0 строк; сравнение не определено."
+    else:
+        for metric, base in (("pr_auc", float(y.mean())), ("roc_auc", .5)):
+            if any(results[key]["at_0.5"][metric] == base for key in ("baseline_subcat", main_key)):
+                reason = "Прирост над базой равен нулю; относительное сравнение не определено."
+    if reason:
+        print(reason)
+        paths.BASELINE_REPORT.parent.mkdir(parents=True, exist_ok=True)
+        paths.BASELINE_REPORT.write_text((FAKE_NOTE + "\n\n" if paths.FAKE else "")
+                                         + "# Справочник против модели\n\n" + reason + "\n")
+        return {"unavailable": reason}
     hr("СПРАВОЧНИК ПРОТИВ МОДЕЛИ В СОПОСТАВИМЫХ РАБОЧИХ ТОЧКАХ")
     nb, nm = len(np.unique(p_base)), len(np.unique(p_model))
     print(f"Различных значений вероятности на тесте: справочник {nb}, модель {nm}.")
@@ -416,11 +435,12 @@ def write_baseline_report(y, ops, results, main_key):
               f"**Модель** — `{main_key}`, логистическая регрессия на one-hot.\n")
 
     md.append("\n## 1. Сопоставимые рабочие точки\n")
-    md.append("Сравнение при одинаковом пороге бессмысленно — сравниваем при "
-              "одинаковом результате.\n")
+    md.append("Сравниваем при достижении минимальной цели. Из-за ступеней "
+              "справочника достигнутые precision и recall могут различаться; "
+              "это не сравнение при точном равенстве метрик.\n")
     md.append("| Целевая точка | Подход | Порог | Помечено | Precision | Recall |")
     md.append("|---|---|---|---|---|---|")
-    for metric, lab in (("recall", "recall = 0.80"), ("precision", "precision = 0.65")):
+    for metric, lab in (("recall", "recall ≥ 0.80"), ("precision", "precision ≥ 0.65")):
         for who in ("справочник", "модель"):
             r = t[metric][who]
             if r is None:   # целевая точка недостижима — сказать, а не падать с TypeError
@@ -432,9 +452,11 @@ def write_baseline_report(y, ops, results, main_key):
     if reach:
         dr = t["recall"]["модель"]["precision"] - t["recall"]["справочник"]["precision"]
         dp = t["precision"]["модель"]["recall"] - t["precision"]["справочник"]["recall"]
-        md.append(f"\nПри равном recall модель точнее на **{dr:+.4f}** precision.  ")
-        md.append(f"При равной precision модель ловит на **{dp:+.4f}** recall больше — "
-                  f"это {100*dp/t['precision']['справочник']['recall']:.0f}% относительного прироста.\n")
+        md.append(f"\nПри цели recall ≥ 0.80 разница precision (модель − справочник): **{dr:+.4f}**.  ")
+        md.append(f"При цели precision ≥ 0.65 разница recall: **{dp:+.4f}** — "
+                  f"{100*dp/t['precision']['справочник']['recall']:.0f}% относительно справочника. "
+                  f"Достигнутая precision: модель {t['precision']['модель']['precision']:.4f}, "
+                  f"справочник {t['precision']['справочник']['precision']:.4f}.\n")
     else:
         md.append("\nХотя бы одна целевая точка недостижима — сравнение в сопоставимых точках "
                   "не считается.\n")
@@ -487,9 +509,9 @@ def write_baseline_report(y, ops, results, main_key):
 
     md.append("\n## 4. Вывод\n")
     if reach:
-        md.append("Модель выигрывает у справочника **во всех сопоставимых точках** — при равном "
-                  "recall, при равной precision и на каждом уровне просмотра. Наибольший отрыв "
-                  f"при равной точности: recall {t['precision']['модель']['recall']:.4f} против "
+        md.append("Рабочие точки выше достигают одинаковых минимальных целей, но не обязательно "
+                  "одинаковых значений метрик. При цели precision ≥ 0.65: "
+                  f"recall модели {t['precision']['модель']['recall']:.4f} против "
                   f"{t['precision']['справочник']['recall']:.4f}.\n")
     else:
         md.append("Вывод в сопоставимых точках не делается: хотя бы одна из них недостижима.\n")

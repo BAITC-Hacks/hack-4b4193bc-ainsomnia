@@ -23,3 +23,8 @@ venv/
 .claude-flow/
 .DS_Store
 docs/
+.env
+.env.*
+**/*.pem
+**/*.key
+.streamlit/secrets.toml

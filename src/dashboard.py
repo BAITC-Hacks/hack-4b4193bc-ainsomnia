@@ -43,7 +43,7 @@ MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн",
              "июл", "авг", "сен", "окт", "ноя", "дек"]
 
 
-def load_data(path=DATA):
+def load_data(path=DATA, revision=None):
     paths.require_source_marker(Path(path).parent / "SOURCE")
     df = pd.read_parquet(path, columns=["created_at", "region", "topic", "appeal_class"])
     df["created_at"] = pd.to_datetime(df["created_at"])
@@ -52,7 +52,7 @@ def load_data(path=DATA):
 
 
 # ---------------------------------------------------------------- события
-def load_events(path=DATA):
+def load_events(path=DATA, revision=None):
     """Дневные ряды и лента всплесков. Параметры детектора — как в src.spikes.
 
     Возвращает (daily, det, ev): дневные счётчики по срезам, таблицу с флагом
@@ -252,7 +252,7 @@ def events_section(st, df):
         "стало резко больше, чем обычно бывало в предыдущие четыре недели. Всплеск "
         "показывает, **куда посмотреть в первую очередь**; предсказанием аварии он "
         "не является.")
-    daily, det, ev_all = st.cache_data(load_events)()
+    daily, det, ev_all = st.cache_data(load_events)(revision=data_revision())
     last_day = region_last_day(daily)
 
     with st.expander("Как это считается", expanded=False):
@@ -588,6 +588,11 @@ def gap_notes(df):
     return "".join(short), "".join(long)
 
 
+def data_revision():
+    stat = DATA.stat()
+    return (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
 def main():
     import streamlit as st
 
@@ -616,7 +621,14 @@ def main():
             "«Контейнер» в CLAUDE.md.")
         st.stop()
 
-    df = st.cache_data(load_data)()
+    try:
+        df = st.cache_data(load_data)(revision=data_revision())
+        if df.empty or df.created_at.isna().any():
+            raise ValueError("invalid canonical dates")
+    except (OSError, ValueError, KeyError):
+        st.error("Данные витрины повреждены или несовместимы со схемой. "
+                 "Повторите проверенную сборку nazar-build-data; аналитика не показана.")
+        st.stop()
 
     # Порядок — «что случилось → почему → что дальше». Шапка стоит первой, но
     # заполняется после ленты и блока риска: её числа — это секция «Требует

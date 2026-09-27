@@ -162,7 +162,7 @@ def _build_canon(
         if unexpected.any():
             print(
                 f"  [{name}] ВНИМАНИЕ: {int(unexpected.sum())} значений '{sla_breach_col}' "
-                f"не 'True'/'False': {sorted(raw.loc[unexpected].unique())[:5]}"
+                "не 'True'/'False'; исходные значения не выводятся"
             )
         out["sla_breach"] = mapped.astype("boolean")
     else:
@@ -447,8 +447,9 @@ def topic_dictionaries(canon: dict[str, pd.DataFrame]) -> None:
         value_sets[name] = set(vc.index)
         print(f"\n[{name}] уникальных значений category: {df['category'].nunique(dropna=True)}")
         print(f"[{name}] топ-20 по частоте:")
+        from src.checks.labeling import category_label
         for val, cnt in vc.head(20).items():
-            print(f"    {cnt:>7}  {val}")
+            print(f"    {cnt:>7}  {category_label(val)}")
 
     print("\n" + "-" * 70)
     print("Попарные пересечения словарей (буквальное совпадение строк category)")

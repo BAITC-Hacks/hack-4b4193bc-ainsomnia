@@ -86,6 +86,10 @@ def main() -> int:
         for k, want in EXPECT.items():
             check(got.get(k) == want, f"{k}: {got.get(k)!r}" + ("" if got.get(k) == want else f", ожидалось {want!r}"))
 
+    ui = run([PY, "-m", "tests.test_dashboard"])
+    check(ui.returncode == 0, "витрина: отказы, фильтры, карточки, отсутствие traceback")
+    if ui.returncode:
+        print(ui.stdout)
     print("4. Отслеживаемые файлы")
     check(git_status() == before, "git status до и после прогона одинаков — поддельный прогон не пишет в git")
     check(snapshot() == real_before, "SHA256 настоящих артефактов после fake-прогона неизменны")

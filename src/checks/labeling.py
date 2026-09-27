@@ -30,6 +30,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from functools import lru_cache
 import sys
 from pathlib import Path
 
@@ -44,6 +46,18 @@ MIN_PROBLEM = 100     # регион с меньшим числом жалоб �
 NEW_NONPROBLEM_MAX = 30   # 1% жалоб самого малого региона (Акмола 3 421) — CLAUDE.md, 0b
 EMPTY = "<пусто>"
 SHOW = 20             # сколько новых категорий печатать; остальные — в файле
+
+
+@lru_cache(maxsize=1)
+def known_categories():
+    return frozenset(json.loads(BASE.read_text(encoding="utf-8")))
+
+
+def category_label(v):
+    """Never echo an unknown source string, even if a regex misses it."""
+    if v not in known_categories():
+        return "category-sha256:" + hashlib.sha256(v.encode()).hexdigest()
+    return _masked(v)
 
 
 def _masked(v: str) -> str:
@@ -104,7 +118,7 @@ def main() -> int:
         fail = True
         n = df["category"].fillna(EMPTY).value_counts()
         for c, (ot, oc), (nt, nc) in sorted(changed, key=lambda x: -n.get(x[0], 0)):
-            print(f"   СМЕНА  {_masked(c)[:60]:60s} {ot} / {oc} -> {nt} / {nc}  ({n.get(c, 0)} строк)")
+            print(f"   СМЕНА  {category_label(c)[:60]:60s} {ot} / {oc} -> {nt} / {nc}  ({n.get(c, 0)} строк)")
     else:
         known = sum(c in base for c in cur)
         print(f"   без изменений: {known} категорий из эталона")
@@ -121,9 +135,9 @@ def main() -> int:
         rev["класс"] = rev.category.map(lambda c: cur[c][1])
         rev = rev.sort_values("строк", ascending=False)
         REVIEW.parent.mkdir(parents=True, exist_ok=True)
-        rev.to_csv(REVIEW, index=False)
+        rev.assign(category=rev.category.map(category_label)).to_csv(REVIEW, index=False)
         for r in rev.head(SHOW).itertuples():
-            print(f"   {_masked(r.category)[:60]:60s} {r.region:30s} {r.строк:>7} -> {r.тема} / {r.класс}")
+            print(f"   {category_label(r.category)[:60]:60s} {r.region:30s} {r.строк:>7} -> {r.тема} / {r.класс}")
         if len(rev) > SHOW:
             print(f"   … ещё {len(rev) - SHOW}")
         print(f"   полный список: {REVIEW}. Просмотреть темы; если верны — "
@@ -135,7 +149,7 @@ def main() -> int:
         print(f"\n4) Новые категории вне жалоб, больше {NEW_NONPROBLEM_MAX} строк — роняют сборку: {len(out)}")
         for c, cls, n in sorted(out, key=lambda x: -x[2]):
             fail = True
-            print(f"   ВЫПАДАЕТ ИЗ ЖАЛОБ: «{_masked(c)[:70]}» — класс {cls}, {n} строк. "
+            print(f"   ВЫПАДАЕТ ИЗ ЖАЛОБ: «{category_label(c)[:70]}» — класс {cls}, {n} строк. "
                   f"Класс определяется по словам названия (src/topic_mapping.py, "
                   f"classify_appeal). Если это жалобы — поправить правило; если "
                   f"действительно {cls} — принять эталон: --update")
