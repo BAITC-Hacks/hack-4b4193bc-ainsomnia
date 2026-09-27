@@ -562,6 +562,13 @@ def main():
                        layout="wide")
     st.title("Обращения в 109 — обзор для руководителя")
     if paths.RUNTIME:
+        if not paths.RELEASE_ERROR:
+            from src.release_store import verify_release
+            try:
+                verify_release(paths.RUNTIME, paths.RELEASE_ID, paths.SOURCE)
+            except (ValueError, OSError, KeyError, TypeError):
+                st.error('BLOCKED — закреплённый release повреждён; выполните nazar-health и проверенный rollback.')
+                st.stop()
         if paths.RELEASE_ERROR:
             st.error(paths.RELEASE_ERROR)
             st.stop()

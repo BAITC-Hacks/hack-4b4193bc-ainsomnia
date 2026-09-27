@@ -23,6 +23,12 @@ def unavailable(reason, health=None):
 
 
 def snapshot(revision_key=None):
+    if paths.RUNTIME:
+        from src.release_store import verify_release
+        try:
+            verify_release(paths.RUNTIME, paths.RELEASE_ID, paths.SOURCE)
+        except (ValueError, OSError, KeyError, TypeError):
+            return unavailable('Закреплённый release повреждён; проверьте readiness и rollback')
     before = revision()
     try:
         health, blocked = load()

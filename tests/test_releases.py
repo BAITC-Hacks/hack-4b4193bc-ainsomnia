@@ -40,6 +40,15 @@ def scenarios():
             assert store.current_id(root)==first, 'activation'
             first_path=store.release_path(root,first)
             first_hashes=store.artifact_hashes(first_path)
+            cli_env=os.environ.copy()
+            cli_env['NAZAR_RUNTIME_DIR']=str(root)
+            def cli(module,*args,expected=2):
+                p=subprocess.run([sys.executable,'-m',module,*args],env=cli_env,capture_output=True,text=True)
+                assert p.returncode==expected,'CLI exit code'
+                assert 'Traceback' not in p.stdout+p.stderr,'CLI traceback'
+                for line in p.stdout.splitlines(): json.loads(line)
+                return p
+            cli('src.readiness',expected=0)
             h=health(root,'fake')
             assert h['status']=='ready' and h['row_count']==12910, 'readiness'
             assert json.loads((first_path/'reports/spikes.json').read_text())['count']==1, 'spikes'
@@ -82,11 +91,15 @@ def scenarios():
             finally: file.write_bytes(saved)
             bad_manifest=base/'bad-manifest.json'; bad_manifest.write_text('{}')
             rejected(manifest_path=bad_manifest)
+            cli('src.refresh','--manifest',str(bad_manifest))
+            assert store.current_id(root)==first,'CLI failure lost ACTIVE'
 
             mode=(root/'releases').stat().st_mode
             (root/'releases').chmod(0o500)
             try:
-                if os.geteuid()!=0: rejected()
+                if os.geteuid()!=0:
+                    rejected()
+                    cli('src.refresh')
                 else:
                     with patch('src.release_store.atomic_bytes',side_effect=PermissionError):
                         with unittest.TestCase().assertRaises(PermissionError): refresh(root,'fake')
@@ -96,6 +109,23 @@ def scenarios():
             assert second!=first and store.current_id(root)==second, 'second publish'
             assert store.artifact_hashes(first_path)==first_hashes, 'previous release not retained'
             assert store.metadata(root,second)['previous_release']==first, 'previous link'
+            # Training is explicit and outside releases. Refresh only imports this donor.
+            donor=base/'risk-donor';shutil.copytree(first_path,donor)
+            train_env=os.environ.copy();train_env.pop('NAZAR_RUNTIME_DIR',None)
+            train_env['NAZAR_WORK_DIR']=str(donor)
+            trained=subprocess.run([sys.executable,str(project/'train.py')],env=train_env,capture_output=True)
+            assert trained.returncode==0,'explicit FAKE donor training'
+            third=refresh(root,'fake',risk_from=donor)
+            third_path=store.release_path(root,third)
+            model_hash=store.digest(donor/'models/model.pkl')
+            assert store.digest(third_path/'models/model.pkl')==model_hash,'refresh retrained risk'
+            metrics=third_path/'reports/metrics.json';content=metrics.read_bytes()
+            metrics.rename(metrics.with_suffix('.missing'))
+            try:
+                cli('src.readiness')
+                assert store.current_id(root)==third,'readiness altered CURRENT'
+            finally: metrics.with_suffix('.missing').rename(metrics)
+            cli('src.readiness',expected=0)
             rollback(root,'fake',first)
             assert store.current_id(root)==first and health(root,'fake')['status']=='ready', 'rollback'
             assert store.release_path(root,second).exists(), 'rollback removed a release'

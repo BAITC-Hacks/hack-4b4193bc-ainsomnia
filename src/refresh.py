@@ -133,17 +133,22 @@ def refresh(root, source, *, manifest_path=None, risk_from=None, run_worker=work
             emit(log,'release_failed',identity,source,component,(time.monotonic()-started)*1000,status='failed')
             raise store.ReleaseError('Сборка отклонена; ACTIVE release сохранён') from None
         finally:
-            for h in log.handlers: h.close()
+            for h in log.handlers:
+                try: h.close()
+                except OSError: pass
 
 
 def rollback(root,source,identity):
     root=store.runtime_path(root,source,PROJECT)
     with store.writer_lock(root):
-        store.publish(root,identity,source)
         log=logger(root/'logs'/'rollback.jsonl')
-        try: emit(log,'rollback',identity,source,'rollback',status='active')
+        try:
+            store.publish(root,identity,source)
+            emit(log,'rollback',identity,source,'rollback',status='active')
         finally:
-            for h in log.handlers: h.close()
+            for h in log.handlers:
+                try: h.close()
+                except OSError: pass
 
 
 def arguments(rollback_command=False):
