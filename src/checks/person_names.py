@@ -6,11 +6,21 @@
 Такое название — ФИО человека, и печатать его можно только маской.
 
     person_hits(name) -> список причин, пустой — не человек
-    safe(name)        -> название маской, если это человек; иначе как есть
+    safe(name)        -> «ИП-3», «ПКСК-1»…, если это человек; иначе как есть
+
+Маска — стабильный номер на значение, а не звёздочки: шесть ИП Костаная под
+звёздочками выглядели бы одинаково, и в таблице риска получилось бы несколько
+строк с одним названием. Номер берётся из реестра всех таких названий канона и
+теста модели, отсортированного по значению, — один исполнитель под одним номером
+в демо, витрине, NLQ и отчётах 5o. Маскируется только вывод: в данных названия
+остаются как есть, чтобы расчёты не склеили разные службы.
 """
 from __future__ import annotations
 
+import hashlib
 import re
+from functools import lru_cache
+from pathlib import Path
 
 from src.synth.checks import ALLOW, NAME_RE, SURNAME
 
@@ -74,16 +84,50 @@ def person_hits(name) -> list[str]:
     return hits
 
 
+UNIFIED = Path("data/unified.parquet")
+PRED = Path("reports/predictions.csv")
+
+
+def _key(name) -> str:
+    return " ".join(str(name).split())
+
+
+def _kind(name: str) -> str:
+    """Форма для подписи: ИП / КХ / ПКСК / ТОО…; иначе «исполнитель»."""
+    s = name.strip().lstrip("«\"“ ")
+    m = PERSON_FORM.match(s)
+    if m:
+        f = m.group(1).upper().replace(".", "").replace("/", "")
+        return "ИП" if f.startswith(("ИП", "ИНДИВИДУАЛ", "ЖЕКЕ")) else "КХ"
+    m = re.search(r"\((П?КСК)\b", s)
+    if m:
+        return m.group(1)
+    m = ORG_FORM.search(s)
+    return m.group(1) if m else "исполнитель"
+
+
+@lru_cache(maxsize=1)
+def registry() -> dict[str, str]:
+    """Все названия-люди канона и теста модели -> стабильная подпись «ИП-1»…"""
+    import pandas as pd
+    vals = set()
+    if UNIFIED.exists():
+        vals |= set(pd.read_parquet(UNIFIED, columns=["executor"]).executor.dropna().map(_key))
+    if PRED.exists():
+        vals |= set(pd.read_csv(PRED, usecols=["category"]).category.dropna().map(_key))
+    out, n = {}, {}
+    for v in sorted(v for v in vals if person_hits(v)):
+        k = _kind(v)
+        n[k] = n.get(k, 0) + 1
+        out[v] = f"{k}-{n[k]}"
+    return out
+
+
 def safe(name):
-    """Название маской, если это человек: служебные формы (ИП, ТОО) остаются."""
+    """Подпись вместо названия, если это человек; иначе название как есть.
+    Значение вне реестра (новая выгрузка) — форма и 4 знака хеша: тоже стабильно."""
     if not person_hits(name):
         return name
-    keep = PERSON_FORM.pattern
-    out = []
-    for w in str(name).split():
-        core = w.strip("«»\"“”()")
-        if PERSON_FORM.fullmatch(core) or ORG_FORM.fullmatch(core):
-            out.append(w)
-        else:
-            out.append(_mask_word(w))
-    return " ".join(out)
+    k = _key(name)
+    lab = registry().get(k)
+    return lab or f"{_kind(k)}-{hashlib.sha256(k.encode()).hexdigest()[:4]}"

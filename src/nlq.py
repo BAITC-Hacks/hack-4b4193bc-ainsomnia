@@ -150,10 +150,6 @@ def load(path=DATA):
     df = pd.read_parquet(path, columns=["created_at", "region", "district", "executor",
                                         "status", "sla_breach", "appeal_class", "topic"])
     df["created_at"] = pd.to_datetime(df["created_at"])
-    # Исполнитель бывает человеком — «ИП Фамилия» (раздел 1): в ответах только маской.
-    from src.checks.person_names import safe
-    ex = df["executor"].dropna().unique()
-    df["executor"] = df["executor"].map({v: safe(v) for v in ex})
     return df, Vocab.build(df)
 
 
@@ -543,6 +539,11 @@ def run(df, vocab, query):
         g = g[g.index.notna()]
         g = drop_residual(g, query, res)
         g = g.head(query.top)
+        if query.group_by == "executor":
+            # Исполнитель бывает человеком — «ИП Фамилия» (раздел 1). Маска только на
+            # выводе: подпись «ИП-3» у каждого своя, считали по настоящим названиям.
+            from src.checks.person_names import safe
+            g.index = [safe(v) for v in g.index]
         res["table"] = g
         res["number"] = int(g.iloc[0]) if len(g) else 0
         res["answer"] = ("; ".join(f"{k} — {num(v)}" for k, v in g.items())
