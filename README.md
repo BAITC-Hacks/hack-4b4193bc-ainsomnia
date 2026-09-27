@@ -1,3 +1,5 @@
+[![ci](https://github.com/arlmango/NAZAR-109/actions/workflows/ci.yml/badge.svg)](https://github.com/arlmango/NAZAR-109/actions/workflows/ci.yml)
+
 # NAZAR-109
 
 Аналитика обращений в единый контакт-центр 109: детектор всплесков жалоб, модель риска просрочки обращения (только Карагандинская область), прогноз нагрузки и витрина для руководителя с выгрузкой в Excel и PDF.
