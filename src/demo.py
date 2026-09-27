@@ -456,6 +456,7 @@ def step_export(df, view):
 
 
 def main():
+    paths.require_writable()
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pause", type=float, default=None,
                     help=f"пауза между днями, сек; по умолчанию "

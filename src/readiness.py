@@ -33,6 +33,11 @@ def health(runtime, source):
         frame=pd.read_parquet(path/'data/unified.parquet',columns=['created_at','region','topic','appeal_class'])
         if len(frame)!=meta['row_count'] or frame.created_at.isna().any():
             raise store.ReleaseError('Канон повреждён или число строк не совпало')
+        counts={str(k):int(v) for k,v in frame.appeal_class.value_counts().items()}
+        if (counts!=meta['class_counts'] or counts!=facts['class_counts']
+            or sorted(frame.region.unique())!=meta['regions']
+            or any(h['status']=='BLOCKED' for h in profile['regions'].values())):
+            raise store.ReleaseError('Агрегаты или качество не согласованы')
         result.update(status='ready',release_id=identity,data_as_of=facts['data_as_of'],row_count=meta['row_count'],
                       required_artifacts={name:True for name in store.REQUIRED})
         result['warnings']=['Data Health: '+r for r,h in profile['regions'].items() if h['status']!='OK']

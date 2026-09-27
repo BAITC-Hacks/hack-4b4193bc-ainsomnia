@@ -738,7 +738,8 @@ def main():
 def summary_section(st, df):
     """Шесть общих чисел — бывшая «Сводка», теперь ниже, под «Общие цифры»."""
     st.subheader("Общие цифры")
-    vc = df["appeal_class"].value_counts()
+    from src.export import summary_counts
+    vc = summary_counts(df)['class_counts']
     c = st.columns(6)
     c[0].metric("Всего обращений", f"{len(df):,}".replace(",", " "))
     for i, k in enumerate(("problem", "info", "system"), start=1):

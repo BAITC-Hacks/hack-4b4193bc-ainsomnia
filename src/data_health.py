@@ -168,6 +168,7 @@ def profile(frame, manifest, counts, *, source, built_at):
 
 
 def build():
+    paths.require_writable()
     paths.require_source_marker(paths.SOURCE_MARK)
     manifest = (generate(paths.RAW_DIR, include_xlsx=False, source="fake") if paths.FAKE else verify())
     state = json.loads(BUILD_STATE.read_text())

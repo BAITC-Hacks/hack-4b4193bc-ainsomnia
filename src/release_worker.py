@@ -49,6 +49,12 @@ def run(step):
         counts={str(k):int(v) for k,v in frame.appeal_class.value_counts().items()}
         if set(counts)-{'problem','info','system'}: raise ValueError('Class mismatch')
         if sum(h['rows'] for h in health['regions'].values())!=len(frame): raise ValueError('Counts mismatch')
+        if paths.PREDICTIONS.exists() or paths.METRICS.exists() or paths.MODEL.exists():
+            from src.actions import risk_summary
+            from src.risk_explanation import explain_rank
+            risk=risk_summary()
+            if not risk['available'] or not explain_rank(0)['available'] or not explain_rank(risk['test_n']-1)['available']:
+                raise ValueError('Explicit risk snapshot is not usable')
         write_json(paths.REPORTS_DIR/'checks.json',dict(row_count=len(frame),class_counts=counts,
                     regions=sorted(health['regions']),mapping_version=mapping_revision(),
                     data_as_of={r:h['last_date'] for r,h in health['regions'].items()}))
