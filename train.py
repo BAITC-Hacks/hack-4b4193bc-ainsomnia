@@ -406,6 +406,8 @@ def write_baseline_report(y, ops, results, main_key):
     L = ops["lift"]
     t = {r["metric"]: r for r in ops["targets"]}
     md = []
+    if paths.FAKE:
+        md.append(FAKE_NOTE + "\n")
     md.append("# Справочник против модели\n")
     md.append(f"Тест: {n} обращений, из них просрочено {pos} ({100*base_rate:.1f}%). "
               f"Разбиение по времени, обучение только на данных до 2023-07-01.\n")
@@ -655,7 +657,11 @@ def main():
               ensure_ascii=False, indent=2)
     joblib.dump(model, paths.MODEL)
     for f in (paths.METRICS, paths.PREDICTIONS, paths.MODEL):
-        print(f"  {str(f.relative_to(paths.ROOT)):28s} {f.stat().st_size:>10d} байт")
+        try:
+            display_path = f.relative_to(paths.ROOT)
+        except ValueError:
+            display_path = f.resolve()
+        print(f"  {str(display_path):28s} {f.stat().st_size:>10d} байт")
 
     # --- ИТОГО ---
     m5, mt = results[main_key]["at_0.5"], results[main_key]["at_tuned"]

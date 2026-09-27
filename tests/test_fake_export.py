@@ -99,6 +99,7 @@ EXPECT = {
     "в группах повторов / лишних копий": [66, 33],
     "train.py: выборка, train, test, отброшено по кавычкам и appeal_type": [5000, 3000, 2000, 20, 2],
     "metrics.json source": "fake",
+    "сохранённый отчёт: плашка первой строкой": True,
     "всплески": [["Костанайская область", "благоустройство и озеленение", "2025-08-27", 40, 1.0, 1.0, 5.0, 40.0, 39.0, 1]],
     "пропуски выгрузки": [["Туркестанская область", "2025-03-01", "2025-05-31", 92]],
     "ПДн в сырье": {"телефон": 4, "12 цифр": 4, "адрес": 7, "отчество": 52, "названий-людей": 2, "строк с ними": 55},
@@ -130,6 +131,9 @@ d = m["data"]
 out["train.py: выборка, train, test, отброшено по кавычкам и appeal_type"] = [
     d["sample"], d["train_n"], d["test_n"], d["dropped_broken_quotes"], d["dropped_bad_appeal_type"]]
 out["metrics.json source"] = m.get("source")
+first_line = next(line for line in paths.BASELINE_REPORT.read_text().splitlines() if line.strip())
+out["сохранённый отчёт: плашка первой строкой"] = (
+    "ПОДДЕЛЬНЫЕ ДАННЫЕ" in first_line and "бессмысленны" in first_line)
 _, _, ev = load_events()
 out["всплески"] = [[r["регион"], r["тема"], str(pd.Timestamp(r["дата"]).date()), int(r["обращений"]),
                     float(r["медиана окна"]), float(r["MAD"]), float(r["порог"]), round(float(r["кратность"]), 1),
@@ -157,4 +161,10 @@ print(json.dumps(out, ensure_ascii=False, default=str))
 '''
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # По умолчанию весь сквозной прогон проверяет внешний каталог результатов.
+    # Явный NAZAR_WORK_DIR позволяет отдельно проверить внутренний путь.
+    if os.environ.get("NAZAR_WORK_DIR"):
+        sys.exit(main())
+    with tempfile.TemporaryDirectory(prefix="nazar-fake-work-") as work:
+        os.environ["NAZAR_WORK_DIR"] = work
+        sys.exit(main())
