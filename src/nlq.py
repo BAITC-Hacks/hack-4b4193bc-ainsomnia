@@ -150,6 +150,10 @@ def load(path=DATA):
     df = pd.read_parquet(path, columns=["created_at", "region", "district", "executor",
                                         "status", "sla_breach", "appeal_class", "topic"])
     df["created_at"] = pd.to_datetime(df["created_at"])
+    # Исполнитель бывает человеком — «ИП Фамилия» (раздел 1): в ответах только маской.
+    from src.checks.person_names import safe
+    ex = df["executor"].dropna().unique()
+    df["executor"] = df["executor"].map({v: safe(v) for v in ex})
     return df, Vocab.build(df)
 
 

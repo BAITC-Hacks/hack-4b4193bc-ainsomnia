@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.checks.person_names import safe as safe_name
 from src.topic_mapping import map_topic
 
 PRED = Path("reports/predictions.csv")
@@ -42,8 +43,9 @@ def load_risk(path=PRED):
         # что во всей витрине.
         "тема": p["sub_category"].map(lambda v: map_topic(v) if pd.notna(v) else "прочее"),
         # Служба: executor_gov_org из модели убран (4b), а category в Караганде —
-        # это и есть организация-исполнитель, не тема (раздел 3).
-        "служба": p["category"].fillna("—"),
+        # это и есть организация-исполнитель, не тема (раздел 3). Исполнитель
+        # бывает человеком — «ИП Фамилия» (раздел 1): такое название — маской.
+        "служба": p["category"].map(lambda v: safe_name(v) if pd.notna(v) else "—"),
         # y_prob × 100. Не «%»: вероятность не откалибрована (4b) и годится
         # только как очерёдность, поэтому подпись не обещает процент.
         "оценка риска (из 100)": (p["y_prob"] * 100).round(1),

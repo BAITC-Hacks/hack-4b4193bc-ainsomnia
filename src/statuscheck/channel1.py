@@ -36,6 +36,7 @@ from src.statuscheck.batches import sync_mask
 from src.statuscheck.frame import FRAME
 from src.statuscheck.load import load
 from src.statuscheck.observability import CELL_COMPLAINTS, CELL_SERVICES, CH1_CLOSURES
+from src.checks.person_names import person_hits, safe as person_safe
 from src.synth.checks import pii_hits
 
 OUT = Path("reports/5o")
@@ -192,7 +193,10 @@ def sync_bursts(d: pd.DataFrame) -> float:
 
 
 def safe_name(name: str) -> str:
-    """Название службы — маской, если в нём имя человека (раздел 1)."""
+    """Название службы — маской, если в нём имя человека (раздел 1): имена в
+    тексте (pii_hits) и название-человек вида «ИП Фамилия» (person_names)."""
+    if person_hits(name):
+        return person_safe(name)
     if pii_hits(name):
         return " ".join(w[:2] + "*" * max(len(w) - 2, 0) for w in str(name).split())
     return name

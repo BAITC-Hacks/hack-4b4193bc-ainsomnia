@@ -33,6 +33,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.checks.person_names import safe as safe_name
 from src.export import PdfUnavailable, build_excel, build_pdf, check_export_pii
 from src.spikes import (classify_seasonal, daily_counts, detect, gap_days,
                         with_duration)
@@ -237,8 +238,11 @@ def step_modules_1_2(df, pause):
         pr = f" {RED}{BOLD}[приоритет]{OFF}" if topic in hot else ""
         # Названия исполнителей длинные («ОТДЕЛ ЖИЛИЩНО-КОММУНАЛЬНОГО ХОЗЯЙСТВА,
         # ПАССАЖИРСКОГО ТРАНСПОРТА И…») — обрезаем для экрана, не для смысла.
-        svc = (f"{a.executor[:40]}…" if pd.notna(a.executor) and len(a.executor) > 41
-               else a.executor if pd.notna(a.executor) else f"{RED}поля нет{OFF}")
+        # Исполнитель бывает человеком — «ИП Фамилия», «имя (…)» (раздел 1):
+        # такое название печатается маской.
+        ex = safe_name(a.executor) if pd.notna(a.executor) else None
+        svc = (f"{ex[:40]}…" if ex and len(ex) > 41
+               else ex if ex else f"{RED}поля нет{OFF}")
         print(f"  {day:%d.%m} {a.created_at:%H:%M:%S}  «{a.category}»  {GREEN}→{OFF} "
               f"{topic} · {cls}\n        {GREEN}→{OFF} служба: {svc}{pr}")
         sim = similar_appeals(pool, a)
