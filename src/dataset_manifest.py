@@ -195,6 +195,7 @@ def accept(raw, candidate, identity, target=ACCEPTED, *, source="real", include_
 
 
 def main():
+    paths.require_writable()
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--accept", metavar="ID")

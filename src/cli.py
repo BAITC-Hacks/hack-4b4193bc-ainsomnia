@@ -73,6 +73,7 @@ def build_data():
     Каждый шаг — отдельный процесс: следующий читает то, что записал предыдущий,
     и на первой ошибке команда останавливается, а не собирает витрину из
     полуготовых файлов."""
+    paths.require_writable()
     os.chdir(ROOT)
     from src.adapters.adapters import BASE_DIR
     require(BASE_DIR, "каталога с сырыми выгрузками", RAW_HINT)

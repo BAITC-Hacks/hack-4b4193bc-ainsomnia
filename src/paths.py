@@ -104,9 +104,33 @@ if _work and not FAKE:
     raise SystemExit("NAZAR_WORK_DIR действует только при NAZAR_SOURCE=fake: результаты настоящей "
                      "выгрузки пишутся в data/, reports/, models/ репозитория (CLAUDE.md, 5p)")
 WORK = canonical((_work if _work else ROOT / "fake_run") if FAKE else ROOT)
+RUNTIME = os.environ.get('NAZAR_RUNTIME_DIR')
+STAGING = os.environ.get('_NAZAR_BUILD_RELEASE')
+RELEASE_ID = None
+RELEASE_ERROR = None
+if STAGING and not RUNTIME:
+    raise SourceError('Staging context требует отдельный runtime.')
+if RUNTIME:
+    from src.release_store import runtime_path, selected, ReleaseError
+    if _work:
+        raise SourceError('NAZAR_WORK_DIR и release mode нельзя использовать одновременно.')
+    try:
+        RUNTIME = runtime_path(RUNTIME, SOURCE, ROOT)
+        WORK, RELEASE_ID = selected(RUNTIME, SOURCE, STAGING)
+    except (ReleaseError, OSError, ValueError):
+        RELEASE_ERROR = 'Нет совместимого ACTIVE release; проверьте nazar-health и nazar-refresh.'
+        if STAGING:
+            raise SourceError('Некорректный staging context.') from None
+        WORK = ROOT / 'runtime-unavailable'
+
+
+def require_writable():
+    if RUNTIME and not STAGING:
+        raise SourceError('ACTIVE release неизменяем: используйте nazar-refresh; обучение — отдельно в legacy mode.')
 
 
 def validate_work_dir(path):
+    require_writable()
     work = canonical(path)
     if FAKE:
         if work == ROOT:
@@ -124,7 +148,8 @@ def validate_work_dir(path):
 
 
 validate_raw_source(RAW_DIR)
-validate_work_dir(WORK)
+if not RUNTIME or STAGING:
+    validate_work_dir(WORK)
 DATA_DIR = WORK / "data"
 REPORTS_DIR = WORK / "reports"
 MODELS_DIR = WORK / "models"

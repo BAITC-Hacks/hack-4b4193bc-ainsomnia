@@ -527,6 +527,7 @@ def write_baseline_report(y, ops, results, main_key):
 
 # --------------------------------------------------------------------------
 def main():
+    paths.require_writable()
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default=str(paths.RAW_DIR / paths.KARAGANDA_CSV))
     ap.add_argument("--cutoff", default="2023-07-01")

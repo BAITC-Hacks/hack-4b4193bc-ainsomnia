@@ -561,6 +561,12 @@ def main():
     st.set_page_config(page_title="Обращения в 109 — обзор для руководителя",
                        layout="wide")
     st.title("Обращения в 109 — обзор для руководителя")
+    if paths.RUNTIME:
+        if paths.RELEASE_ERROR:
+            st.error(paths.RELEASE_ERROR)
+            st.stop()
+        st.caption(f"Закреплённый release: {paths.RELEASE_ID}. После успешного refresh/rollback "
+                   "перезапустите процесс витрины для перехода на CURRENT.")
     try:
         is_fake = paths.data_is_fake() if DATA.exists() else paths.FAKE
     except paths.SourceError as exc:

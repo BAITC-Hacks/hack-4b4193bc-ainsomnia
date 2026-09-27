@@ -21,6 +21,9 @@ dynamic = ["dependencies", "optional-dependencies"]
 [project.scripts]
 nazar-build-data = "src.cli:build_data"
 nazar-dashboard = "src.cli:dashboard"
+nazar-refresh = "src.refresh:main"
+nazar-rollback = "src.refresh:rollback_main"
+nazar-health = "src.readiness:main"
 
 [tool.setuptools.dynamic]
 # Один источник версий — requirements.txt; здесь они не повторяются.
