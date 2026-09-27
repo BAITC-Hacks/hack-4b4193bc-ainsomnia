@@ -42,6 +42,24 @@ export NAZAR_SOURCE=fake
 
 **Время:** в локальном аудите 27.09.2026 на macOS, Python 3.12.13, уже установленное окружение, сквозной тест занял 13,95 с. Это регенерация набора, сборка, обучение, проверка витрины через AppTest и отрицательный сценарий; установка зависимостей и время открытия браузера сюда не входят. Это измерение конкретного прогона, не обещание времени на другой машине.
 
+## Локальная подготовка к deployment: P3
+
+Новый release mode включается явно и не меняет прежний quick start:
+
+```bash
+export NAZAR_SOURCE=fake
+export NAZAR_RUNTIME_DIR="$PWD/runtime/fake"
+.venv/bin/nazar-refresh
+.venv/bin/nazar-health
+.venv/bin/nazar-dashboard
+```
+
+Refresh собирает отдельную версию и переключает `CURRENT` только после обязательных проверок. При отказе рабочий релиз сохраняется. Риск автоматически не обучается. `nazar-rollback --release ID` проверяет и выбирает прежний READY release без пересборки. Данные и снимки сырья в `runtime/` не коммитятся и не удаляются автоматически.
+
+Витрина закрепляет версию при запуске и показывает её ID. После refresh/rollback нужен явный перезапуск процесса; `nazar-health` проверяет CURRENT, а Streamlit health endpoint — только liveness. Логи операций — JSONL без строк обращений.
+
+[Runbook](docs/deployment.md), [приёмка P3](docs/p3-results.md), [backup/restore](docs/backup.md), [S3 contract](docs/s3.md) и [внешние решения](docs/deployment-external.md). Подготовлены [release compose](deploy/compose.release.yml) и [пример Caddy](deploy/Caddyfile.example). Полный контейнерный запуск и PDF в Docker ещё не проверены; REAL требует согласованных доступа, OIDC, шифрования, retention и правового основания. Никакого push/deploy в P3 не выполнялось.
+
 ## Операционный слой P2
 
 Первая таблица — **«Что требует внимания»**: новые всплески, историческая очередь риска Караганды, предупреждения Data Health и сезонный переход прогноза. Приоритеты BLOCKED/HIGH/WATCH заданы правилами, общего AI score нет. Новизна — последние 7 дней данных своего региона, не сегодня; всплески упорядочены по абсолютному приросту.
@@ -56,7 +74,7 @@ export NAZAR_SOURCE=fake
 
 Текущий REAL после принятого mapping: **1 225 всплесков**, 302 строки сменили тему, число обращений и классы сохранились. [Полный diff и пересчёт](docs/topic-mapping-results.md). [Приёмка P2](docs/p2-results.md) содержит проверки, числа и ограничения. Полный REAL не хранится в репозитории; FAKE проверяет программный путь, а не качество модели.
 
-[Внутренний service-layer](docs/service-layer.md) вызывается без Streamlit. [Feedback](docs/feedback.md) отложен до [OIDC](docs/auth.md); HTTP API не добавлен. [Atomic refresh](docs/atomic-refresh.md) пока проект миграции, текущий build не атомарен. Публичный deployment до приёмки доступа и обновления не разрешён. Постановки P2.1–P2.6 — в [CLAUDE.md](CLAUDE.md).
+[Внутренний service-layer](docs/service-layer.md) вызывается без Streamlit. [Feedback](docs/feedback.md) отложен до [OIDC](docs/auth.md); HTTP API не добавлен. [Atomic refresh](docs/atomic-refresh.md) реализован отдельной opt-in командой `nazar-refresh`; legacy build остаётся неатомарным. Публичный deployment до приёмки доступа и обновления не разрешён. Постановки P2.1–P2.6 — в [CLAUDE.md](CLAUDE.md).
 
 ## Качество и свежесть данных
 
