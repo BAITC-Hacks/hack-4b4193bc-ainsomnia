@@ -1,8 +1,10 @@
-# Установка — одна команда из корня репозитория (раздел 0 CLAUDE.md):
+# Установка — из корня репозитория (раздел 0 CLAUDE.md): сначала закреплённые
+# версии всех пакетов с хешами, потом сам проект без зависимостей:
 #
-#     uv pip install --python .venv/bin/python -e .
+#     uv pip install --python .venv/bin/python -r requirements.lock --require-hashes
+#     uv pip install --python .venv/bin/python --no-deps -e .
 #
-# Ставит зависимости из requirements.txt, сам пакет src и две команды в .venv/bin:
+# Вторая команда ставит сам пакет src и две команды в .venv/bin:
 # nazar-build-data и nazar-dashboard. Пакет ставится в режиме -e: код остаётся в
 # репозитории, правки видны без переустановки.
 [build-system]

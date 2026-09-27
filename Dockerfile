@@ -17,9 +17,11 @@ ENV BROWSER_PATH=/usr/bin/chromium \
 
 WORKDIR /app
 
-# Зависимости отдельным слоем: он пересобирается, только когда меняется requirements.txt
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# Зависимости отдельным слоем: он пересобирается, только когда меняется lock.
+# requirements.lock — все пакеты с версиями и хешами (CLAUDE.md, 0b, препятствие 3);
+# requirements.txt нужен pyproject.toml для метаданных пакета, ставится проект без зависимостей.
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 # Код и агрегаты из git. CLAUDE.md нужен выгрузке: оговорки берутся из раздела 5d.
 COPY pyproject.toml CLAUDE.md train.py ./
