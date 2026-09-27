@@ -28,6 +28,12 @@ def chart(fig):
                       hoverlabel=dict(bgcolor='white',font_size=13),
                       modebar=dict(bgcolor='rgba(0,0,0,0)',color=GREY,activecolor=NAVY))
     for i,trace in enumerate(fig.data):
+        if trace.type=='bar' and trace.name=='жалоб за день':
+            trace.update(marker_color=[RED if c=='#C62828' else '#90A4AE' for c in trace.marker.color])
+        if trace.type=='scatter' and str(trace.name).startswith('обычно в день'):
+            trace.update(line_color=TEAL)
+        if trace.type=='scatter' and trace.name=='граница всплеска':
+            trace.update(line_color=AMBER)
         if trace.type=='scatter' and str(trace.name).endswith('область'):
             trace.update(line_color=PALETTE[i % len(PALETTE)])
         if trace.type=='bar' and trace.name in ('Жалобы на городские проблемы','Справочные звонки','Служебные записи'):
