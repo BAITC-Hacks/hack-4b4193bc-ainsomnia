@@ -8,13 +8,17 @@
   topic        — одна из 14 общих тем (только для appeal_class == 'problem'
                  эта разметка имеет смысл как метрика покрытия)
 
-Правила — подстроки в названии темы, приведённом к нижнему регистру.
+Правила — основы на границе токена в названии темы в нижнем регистре.
 ПОРЯДОК ЗНАЧИМ: побеждает первое совпадение, поэтому специфичные правила
 стоят выше общих («дворовое освещение» -> электроснабжение, не благоустройство).
 
 Черновик для ручного разбора, не финальный справочник.
 """
 import sys
+import re
+import hashlib
+import json
+from functools import lru_cache
 from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -27,6 +31,14 @@ TOPICS = ["ЖКХ", "водоснабжение и канализация", "т�
           "жилищный фонд", "восстановление после земляных работ",
           "связь и телекоммуникации", "экология",
           "социальные вопросы", "безопасность", "прочее"]
+
+# Owner decisions for these exact source-dictionary categories (CLAUDE 0e).
+# In particular, a technical passport is NOT universally a housing topic.
+MANUAL_TOPICS = {
+    "безхозяйные сети – постановка на учет": "ЖКХ",
+    "технический паспорт": "жилищный фонд",
+    "экскизные проекты": "прочее",
+}
 
 # --- классы обращения. Проверяются ДО тем. system раньше info. ---
 SYSTEM = ["сброс звонка", "cброс звонка", "срыв звонка", "зачитыван",
@@ -67,7 +79,7 @@ RULES = [
         "подстанц", "трансформат", "напряжен", "жарық", "энергоснаб",
         "отсутствие света", "нет света", "замыкан", "искрен", "столб"]),
     ("дороги", [
-        "дорог", "дорожн", "тротуар", "асфальт", "проезж част", "светофор",
+        "дорог", "дорожн", "автодорог", "тротуар", "асфальт", "проезж част", "светофор",
         "семафор", "разметк", "мост", "перекрест", "яма", "обочин", "путепровод",
         "пешеходн", "трасс", "неровност", "шлагбаум", "казавтожол"]),
     ("транспорт", [
@@ -86,7 +98,7 @@ RULES = [
         "домофон", "пандус", "придомов"]),
     ("ЖКХ", [
         "жкх", "коммунальн", "газоснаб", "газов", "газопровод", "газифик", "утечка газа", "газа ",
-        "жизнеобеспечен", "тариф", "начислен", "счетчик", "прибор учет",
+        "жизнеобеспечен", "тариф", "начислен", "счетчик", "водосчетчик", "прибор учет",
         "единый платежный", "топлив"]),
     ("связь и телекоммуникации", [
         "телекоммуникац", "связь и информац", "интернет", "мобильн",
@@ -99,7 +111,7 @@ RULES = [
         "скорая", "образован", "школ", "детский сад", "детсад", "социальн",
         "пособ", "пенси", "занятост", "адресная помощь", "инвалид", "многодетн",
         "культур", "спорт", "трудоустрой", "зарплат", "мед.персонал", "осмс",
-        "гобмп", "аптек", "травм", "енпф"]),
+        "гобмп", "аптек", "травм", "енпф", "медкарт", "нетрудоспособ", "опекун", "попечитель"]),
     ("безопасность", [
         "полиц", "безопасн", "правопоряд", "видеонаблюден", "чрезвычайн",
         "пожар", "наркот", "преступ", "правонарушен", "хулиган", "чс",
@@ -110,7 +122,7 @@ RULES = [
         "бордюр", "снег", "наледь", "гололед", "дворов", "субботник", "клумб",
         "фонтан", "малые архитектурн", "городская среда", "уборк",
         "кронирован", "скос", "мебел", "общественные места",
-        "памятник"]),
+        "памятник", "антигололед"]),
     # Поздние короткие основы — стоят в конце намеренно.
     # «опор» перехватывал «Правопорядок» и «Ограждение (опоры)»;
     # «утечк»/«порыв» перехватывали газ и отопление.
@@ -120,6 +132,13 @@ RULES = [
 
 def norm(v):
     return "" if v is None else str(v).strip().lower().replace("ё", "е")
+
+
+def mapping_revision():
+    """Persisted semantic identity: rules and matching/classification mechanics."""
+    payload = {"matcher": "token-prefix-v2", "classifier": "substring-v1",
+               "rules": RULES, "manual": MANUAL_TOPICS, "system": SYSTEM, "info": INFO}
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 def classify_appeal(value):
     v = norm(value)
@@ -133,21 +152,33 @@ def classify_appeal(value):
             return "info"
     return "problem"
 
+@lru_cache(maxsize=512)
+def _key_pattern(key):
+    """Default/legacy ^: token prefix; ~: explicit substring mode.
+
+    A trailing space requires a token end, including punctuation or EOF.
+    Mode and trailing-space semantics are captured before normalization.
+    """
+    substring = key.startswith("~")
+    whole = bool(key) and key[-1].isspace()
+    body = norm(key[1:] if key.startswith(("^", "~")) else key)
+    if not body:
+        raise ValueError("empty topic key")
+    pattern = r"\s+".join(re.escape(word) for word in body.split())
+    return re.compile(("" if substring else r"(?<!\w)") + pattern
+                      + (r"(?!\w)" if whole else ""))
+
+
 def _match(key, v):
-    """Ключ с префиксом «^» — начало слова: проверяется " " + основа в
-    " " + название + " ". Пробел на конце такого ключа означает целое слово.
-    norm() здесь не применяется к ключу намеренно: он делает strip() и
-    срезал бы граничные пробелы. Остальные ключи — подстрока, как раньше.
-    Полноценное сравнение по словам — долг к октябрю, CLAUDE.md раздел 9."""
-    if key.startswith("^"):
-        return (" " + key[1:].lower().replace("ё", "е")) in (" " + v + " ")
-    return norm(key) in v
+    return _key_pattern(key).search(v) is not None
 
 
 def map_topic(value):
     v = norm(value)
     if not v:
         return "прочее"
+    if v in MANUAL_TOPICS:
+        return MANUAL_TOPICS[v]
     for topic, keys in RULES:
         for k in keys:
             if _match(k, v):
@@ -177,7 +208,7 @@ def audit_rules(df):
     for th in other:
         nt = norm(th)
         for topic, k in allkeys:
-            nk = norm(k)
+            nk = norm(k.removeprefix("^").removeprefix("~"))
             if nk in nt:
                 continue
             best = max((SequenceMatcher(None, nk, w).ratio()

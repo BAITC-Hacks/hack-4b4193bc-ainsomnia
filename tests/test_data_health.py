@@ -84,6 +84,7 @@ class HealthTests(unittest.TestCase):
                 self.assertIsNone(health.load()[1])
                 write_json(state, {"state": "failed", "source": "fake"})
                 self.assertIsNotNone(health.load()[1])
+
                 write_json(state, {"state": "ok", "source": "fake"})
                 profile["source"] = "real"
                 write_json(report, profile)
@@ -92,6 +93,15 @@ class HealthTests(unittest.TestCase):
                 write_json(report, profile)
                 unified.write_bytes(b"changed bytes")
                 self.assertIsNotNone(health.load()[1])
+
+    def test_mapping_change_is_not_input_drift(self):
+        _, current = sample()
+        previous = copy.deepcopy(current)
+        previous.pop("mapping_revision")
+        result = compare(current, previous)
+        self.assertFalse(result["available"])
+        self.assertEqual(result["changes"], [])
+        self.assertIn("версия разметки", result["reason"])
 
 
 if __name__ == "__main__":

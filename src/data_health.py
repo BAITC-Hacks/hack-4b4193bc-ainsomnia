@@ -10,6 +10,7 @@ from src import paths, forecast
 from src.data_drift import compare
 from src.dataset_manifest import digest, generate, verify, write_json
 from src.checks.labeling import BASE, EMPTY
+from src.topic_mapping import mapping_revision
 
 PROFILE = paths.DATA_DIR / "data_health.json"
 PREVIOUS = paths.DATA_DIR / "data_health_previous.json"
@@ -29,6 +30,8 @@ def validate_profile(value):
         return isinstance(value, str) and len(value) == 64 and set(value) <= set("0123456789abcdef")
     require(value["format_version"] == 1 and value["source"] in ("real", "fake"))
     require(sha(value["dataset_id"]) and sha(value["unified_sha256"]))
+    if "mapping_revision" in value:
+        require(sha(value["mapping_revision"]))
     require(value["schema_status"] == "compatible" and value["fingerprint_status"] == "verified_at_build")
     datetime.fromisoformat(value["built_at"])
     require(bool(value["regions"]) and set(value["regions"]) <= REGIONS)
@@ -58,7 +61,8 @@ def validate_profile(value):
                         ("raw_rows", "dedup_dropped", "date_dropped", "field_shift_dropped", "output_rows", "date_shift_proxy")))
     require(type(value["drift"]["available"]) is bool)
     if not value["drift"]["available"]:
-        require(value["drift"]["reason"] == "Нет предыдущей успешной версии")
+        require(value["drift"]["reason"] in ("Нет предыдущей успешной версии",
+                "Изменилась версия разметки тем; сравнение входного потока недоступно"))
     for row in value["drift"]["changes"]:
         require(row["region"] in REGIONS and type(row["warning"]) is bool)
         for key in ("field", "before", "after"):
@@ -111,6 +115,7 @@ def profile(frame, manifest, counts, *, source, built_at):
         raise ValueError("Required fields incomplete")
     problem = frame[frame.appeal_class == "problem"]
     output = {"format_version": 1, "source": source, "dataset_id": manifest["dataset_id"],
+              "mapping_revision": mapping_revision(),
               "built_at": built_at, "schema_status": "compatible",
               "fingerprint_status": "verified_at_build", "regions": {}}
     for region, group in frame.groupby("region"):
@@ -181,7 +186,8 @@ def build():
         validate_profile(old)
         if old["source"] != current["source"]:
             raise ValueError("Profile source mismatch")
-        if old["dataset_id"] != current["dataset_id"]:
+        if (old["dataset_id"] != current["dataset_id"]
+                or old.get("mapping_revision") != current["mapping_revision"]):
             previous = old
         elif PREVIOUS.exists():
             previous = json.loads(PREVIOUS.read_text())
@@ -215,6 +221,8 @@ def load():
         validate_profile(current)
         if current["source"] != paths.SOURCE:
             return None, "Источник профиля не совпадает с SOURCE"
+        if current.get("mapping_revision") != mapping_revision():
+            return None, "Изменилась версия разметки тем; повторите сборку"
         if current["unified_sha256"] != digest(paths.UNIFIED):
             return None, "Fingerprint канона не совпадает с профилем; повторите сборку"
         if not paths.FAKE:
