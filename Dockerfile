@@ -24,6 +24,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Код и агрегаты из git. CLAUDE.md нужен выгрузке: оговорки берутся из раздела 5d.
 COPY pyproject.toml CLAUDE.md train.py ./
 COPY src/ src/
+# Трейсбек в браузере выключен (client.showErrorDetails = "none"): nazar-dashboard
+# переходит в /app и читает конфиг оттуда.
+COPY .streamlit/ .streamlit/
 COPY tests/ tests/
 COPY reports/ reports/
 RUN pip install --no-cache-dir --no-deps -e .
