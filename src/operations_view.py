@@ -1,7 +1,7 @@
 """Thin Streamlit rendering; numbers come from the operational services."""
 from datetime import datetime, timezone
 import pandas as pd
-from src.planning import capacity
+from src.ui.capacity import capacity_section
 from src.closure import STATUS_RU
 from src.brief import render_html, render_pdf
 from src.export import PdfUnavailable
@@ -60,32 +60,7 @@ def planning_section(st, snapshot):
                 'limitation':'Ограничение'}),hide_index=True,width='stretch')
     else:
         empty_state(st,'Прогноз недоступен: на тестовых данных рабочий прогноз не применяется, а на реальных требуется достаточная история.')
-    st.subheader('Сценарий нагрузки')
-    st.caption('Сценарное изменение входящего потока −20% / base / +20% — не доверительный интервал. '
-               'Параметры вводит пользователь: это не фактический штат 109 и не рекомендация найма.')
-    if forecasts:
-        index=st.selectbox('Ряд для сценария',range(len(forecasts)),format_func=lambda i:
-                           forecasts[i]['region']+' · '+(forecasts[i]['topic'] or 'все темы'))
-        selected=forecasts[index]
-        st.write(f"Все часы ниже — на одного оператора ЗА ВСЕ {selected['weeks']} НЕДЕЛЬ после {selected['data_as_of']}.")
-        c=st.columns(4)
-        operators=c[0].number_input('Операторов',min_value=0,value=None,step=1)
-        hours=c[1].number_input('Часов на оператора за 13 недель',min_value=0.,value=None)
-        aht=c[2].number_input('Минут на одну жалобу (AHT)',min_value=0.01,value=None)
-        reserve=c[3].number_input('Резерв, %',min_value=0.,max_value=99.99,value=None)
-        if all(v is not None for v in (operators,hours,aht,reserve)):
-            try:
-                rows=capacity(selected['demand'],operators,hours,aht,reserve/100)
-                st.dataframe(pd.DataFrame(rows).rename(columns={
-                    'scenario':'Сценарий','weeks':'Недель','demand':'Спрос, жалоб',
-                    'raw_capacity':'Мощность без резерва','available_capacity':'Доступная мощность',
-                    'utilization':'Доля загрузки','balance':'Запас (+) / дефицит (−)',
-                    'required_operator_hours':'Требуемые совокупные операторо-часы'}),hide_index=True)
-                st.caption('Мощность = операторы × часы × 60 / AHT × (1 − резерв). При нулевой мощности загрузка не определена.')
-            except ValueError as e:
-                st.warning(str(e))
-        else:
-            st.info('Заполните четыре параметра; часы и AHT должны относиться к обработке жалоб выбранного ряда.')
+    capacity_section(st, forecasts)
     st.subheader('Повторное давление по теме')
     st.caption('Не повторная авария: нет безопасного адресного ключа. От конца одного всплеска до начала следующего '
                'той же темы. Неполное окно или пропуск ≥7 дней означает недостаточную наблюдаемость. Это не рейтинг регионов.')
