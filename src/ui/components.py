@@ -58,7 +58,7 @@ def info_callout(st, message):
 
 
 def masthead(st, df, source):
-    st.markdown('<header class="nazar-header"><div><div class="nazar-brand">NAZAR-109</div>'
+    st.markdown('<header class="nazar-header"><div><div class="nazar-brand">NAZAR109</div>'
                 '<div class="nazar-brand-sub">Аналитика обращений 109</div></div>'
                 '<div class="nazar-header-meta">'
                 f'<span>Источник<b>{esc(source.upper())}</b></span>'
