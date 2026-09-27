@@ -44,6 +44,15 @@ def git_status():
 
 def main() -> int:
     before = git_status()
+    if __package__:
+        from .test_source_isolation import snapshot
+    else:
+        from test_source_isolation import snapshot
+    real_before = snapshot()
+    guard = run([PY, str(ROOT / "tests/test_source_isolation.py")])
+    check(guard.returncode == 0, "изоляция источников: отрицательные регрессии и SHA256 real")
+    if guard.returncode:
+        return 1
 
     print("1. Набор воспроизводится до байта")
     with tempfile.TemporaryDirectory() as tmp:
@@ -75,6 +84,7 @@ def main() -> int:
 
     print("4. Отслеживаемые файлы")
     check(git_status() == before, "git status до и после прогона одинаков — поддельный прогон не пишет в git")
+    check(snapshot() == real_before, "SHA256 настоящих артефактов после fake-прогона неизменны")
 
     print("5. Вариант с новой категорией")
     with tempfile.TemporaryDirectory() as raw, tempfile.TemporaryDirectory() as work:

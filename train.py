@@ -656,6 +656,7 @@ def main():
               open(paths.METRICS, "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
     joblib.dump(model, paths.MODEL)
+    paths.write_source_marker(paths.RISK_SOURCE_MARK, a.csv)
     for f in (paths.METRICS, paths.PREDICTIONS, paths.MODEL):
         try:
             display_path = f.relative_to(paths.ROOT)

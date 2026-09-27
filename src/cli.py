@@ -45,11 +45,13 @@ def require(path, what, how):
 
 
 def require_unified():
-    return require(UNIFIED, "сводной таблицы обращений", BUILD_HINT)
+    p = require(UNIFIED, "сводной таблицы обращений", BUILD_HINT)
+    paths.require_source_marker(paths.SOURCE_MARK)
+    return p
 
 
 def require_raw(path):
-    return require(path, "сырого файла выгрузки", RAW_HINT)
+    return require(paths.validate_raw_source(path), "сырого файла выгрузки", RAW_HINT)
 
 
 # ---------------------------------------------------------------- команды
@@ -73,9 +75,8 @@ def build_data():
     os.chdir(ROOT)
     from src.adapters.adapters import BASE_DIR
     require(BASE_DIR, "каталога с сырыми выгрузками", RAW_HINT)
-    # Отметка источника: витрина по ней показывает плашку «ПОДДЕЛЬНЫЕ ДАННЫЕ» (5p).
-    paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    paths.SOURCE_MARK.write_text(paths.SOURCE + "\n", encoding="utf-8")
+    paths.validate_raw_source(BASE_DIR, recursive=True)
+    paths.validate_work_dir(paths.WORK)
     if paths.FAKE:
         print(f"ПОДДЕЛЬНАЯ ВЫГРУЗКА: {BASE_DIR} -> результаты в {paths.DATA_DIR} (CLAUDE.md, 5p)")
     for i, (title, module) in enumerate(BUILD_STEPS, start=1):
@@ -104,4 +105,3 @@ def dashboard():
     from streamlit.web import cli as stcli
     sys.argv = ["streamlit", "run", str(ROOT / "src" / "dashboard.py"), *sys.argv[1:]]
     return stcli.main()
-

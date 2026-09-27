@@ -44,6 +44,7 @@ MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн",
 
 
 def load_data(path=DATA):
+    paths.require_source_marker(Path(path).parent / "SOURCE")
     df = pd.read_parquet(path, columns=["created_at", "region", "topic", "appeal_class"])
     df["created_at"] = pd.to_datetime(df["created_at"])
     df["месяц"] = df["created_at"].dt.to_period("M").dt.to_timestamp()
@@ -58,6 +59,7 @@ def load_events(path=DATA):
     всплеска по дням и ленту событий с длительностью и типом. Считается один раз
     и кладётся в кэш: детектор идёт по всем срезам всех регионов.
     """
+    paths.require_source_marker(Path(path).parent / "SOURCE")
     full = pd.read_parquet(path, columns=["created_at", "region", "topic", "appeal_class"])
     full["created_at"] = pd.to_datetime(full["created_at"])
     problem = full[full.appeal_class == "problem"].copy()
@@ -592,7 +594,12 @@ def main():
     st.set_page_config(page_title="Обращения в 109 — обзор для руководителя",
                        layout="wide")
     st.title("Обращения в 109 — обзор для руководителя")
-    if paths.data_is_fake():
+    try:
+        is_fake = paths.data_is_fake() if DATA.exists() else paths.FAKE
+    except paths.SourceError as exc:
+        st.error(str(exc))
+        st.stop()
+    if is_fake:
         # Поддельная выгрузка из tests/ (CLAUDE.md, 5p): числа не описывают ни один регион.
         st.error("**ПОДДЕЛЬНЫЕ ДАННЫЕ — числа не описывают ни один регион.** Витрина "
                  "собрана из тестовой выгрузки `tests/fixtures/fake_export/`: она нужна, "

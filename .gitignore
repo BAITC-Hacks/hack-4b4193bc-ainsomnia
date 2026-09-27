@@ -8,6 +8,7 @@ raw/
 
 # === Построчные артефакты — могут содержать ПДн ===
 reports/predictions.csv
+reports/SOURCE
 models/
 
 # Агрегированные метрики коммитить можно:

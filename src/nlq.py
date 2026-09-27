@@ -146,6 +146,7 @@ def longest_zero_run(s):
 
 
 def load(path=DATA):
+    paths.require_source_marker(Path(path).parent / "SOURCE")
     from src.cli import BUILD_HINT, require
     require(path, "сводной таблицы обращений", BUILD_HINT)
     df = pd.read_parquet(path, columns=["created_at", "region", "district", "executor",

@@ -71,6 +71,7 @@ def mapping(df: pd.DataFrame) -> dict[str, list[str]]:
 
 
 def main() -> int:
+    paths.require_source_marker(paths.SOURCE_MARK)
     from src.cli import BUILD_HINT, require
     require(DATA, "сводной таблицы обращений", BUILD_HINT)
     df = pd.read_parquet(DATA, columns=["region", "category", "topic", "appeal_class"])

@@ -20,6 +20,7 @@ SRC = paths.BY_REGION
 OUT = paths.UNIFIED
 
 def main():
+    paths.require_source_marker(paths.SOURCE_MARK)
     parts = sorted(SRC.glob("*.parquet"))
     if not parts:
         sys.exit(f"нет файлов в {SRC} — сначала запустите src/adapters/adapters.py")

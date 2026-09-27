@@ -35,6 +35,7 @@ WORK_SHARE = 0.20
 
 def load_risk(path=PRED):
     """Тест модели, отсортированный по предсказанному риску, сверху вниз."""
+    paths.require_source_marker(Path(path).parent / "SOURCE")
     p = pd.read_csv(path)
     out = pd.DataFrame({
         "дата": pd.to_datetime(p["created_date"]).dt.strftime("%d.%m.%Y %H:%M"),
@@ -69,11 +70,14 @@ def top_share(risk, share):
 
 def headline(path=METRICS):
     """ROC-AUC и PR-AUC основной модели, база и справочник — из metrics.json."""
+    source = paths.require_source_marker(Path(path).parent / "SOURCE")
     m = json.loads(Path(path).read_text(encoding="utf-8"))
+    if m.get("source", source) != source:
+        raise paths.SourceError("source в metrics.json противоречит SOURCE-маркеру; повторите train.py.")
     main = m["models"][m["main_model"]]["at_tuned"]
     base = m["models"]["dummy"]["at_0.5"]["pr_auc"]          # = доля класса 1 в тесте
     sub = m["models"]["baseline_subcat"]["at_0.5"]["pr_auc"]
-    return {"source": m.get("source", "real"),
+    return {"source": source,
             "model": m["main_model"], "roc_auc": main["roc_auc"], "pr_auc": main["pr_auc"],
             "base": base, "subcat_pr_auc": sub,
             # Та же доля, что в 4b: (справочник − база) / (модель − база).
@@ -109,8 +113,12 @@ def risk_section(st):
             "`reports/predictions.csv` в git не хранится — это строка на обращение; "
             "в контейнере каталог `reports/` подключается томом.")
         return None
-    h = headline()
-    risk = load_risk()
+    try:
+        h = headline()
+        risk = load_risk()
+    except paths.SourceError as exc:
+        st.error(str(exc))
+        return None
     if h["source"] == "fake":
         st.error("**Поддельные данные: метрики модели бессмысленны.** Они существуют только "
                  "для того, чтобы этот блок отрисовался (CLAUDE.md, 5p).")

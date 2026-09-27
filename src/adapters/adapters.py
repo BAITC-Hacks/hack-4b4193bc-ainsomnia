@@ -498,6 +498,8 @@ def write_region_parquets(canon: dict[str, pd.DataFrame], out_dir: str) -> None:
 # --------------------------------------------------------------------------- #
 
 def run_all() -> dict[str, pd.DataFrame]:
+    paths.validate_raw_source(BASE_DIR, recursive=True)
+    paths.validate_work_dir(paths.WORK)
     print("=" * 70)
     print("A. Адаптеры по регионам — построчная самопроверка")
     print("=" * 70)
@@ -529,6 +531,7 @@ def run_all() -> dict[str, pd.DataFrame]:
 
     topic_dictionaries(canon)
     write_region_parquets(canon, OUT_DIR)
+    paths.write_source_marker(paths.SOURCE_MARK, BASE_DIR)
     return canon
 
 

@@ -198,6 +198,7 @@ def audit_rules(df):
         print(f"  {r:.2f}  {n:7d} строк  «{th[:52]}»  ~  правило «{k}» ({topic})")
 
 def main():
+    paths.require_source_marker(paths.SOURCE_MARK)
     src = paths.UNIFIED
     if not src.exists():
         sys.exit("нет data/unified.parquet — сначала src/adapters/build_unified.py")
