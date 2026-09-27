@@ -14,7 +14,7 @@ macOS/Linux для разработки; Linux VPS с Docker Engine/Compose, д�
 
 [.env.example](../.env.example) содержит только имена и пустые значения. Не копировать его как готовую конфигурацию: SOURCE должен быть явно fake или real, WORK_DIR — только legacy FAKE и несовместим с release mode. S3/OIDC не требуются текущему приложению. Реальные credentials — secret store; .env/key/credentials/secrets игнорируются.
 
-Legacy команды остаются прежними без NAZAR_RUNTIME_DIR. Установка новых команд локально: `uv pip install --python .venv/bin/python --no-deps --no-build-isolation -e .` после установки lock. Release mode включается явно:
+Legacy команды остаются прежними без NAZAR_RUNTIME_DIR. Установка новых команд локально: `uv pip install --python .venv/bin/python --no-deps -e .` после установки lock. Release mode включается явно:
 
 ```bash
 export NAZAR_SOURCE=fake
