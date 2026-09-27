@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 
@@ -56,6 +58,47 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="nazar-source-guard-") as tmp:
         tmp = Path(tmp)
+        copied = tmp / "renamed-input.csv"
+        shutil.copyfile(csv, copied)
+        reject("A copied renamed CSV", ["train.py", "--csv", str(copied)],
+               {"NAZAR_SOURCE": "real"}, "SHA256 fingerprint")
+        copied_dir = tmp / "customer-delivery"
+        shutil.copytree(fixture, copied_dir)
+        build = [str(Path(PY).parent / "nazar-build-data")]
+        reject("B copied raw directory", build,
+               {"NAZAR_SOURCE": "real", "NAZAR_RAW_DIR": str(copied_dir)}, "SHA256 fingerprint")
+        copy_file_link, copy_dir_link = tmp / "renamed-link.csv", tmp / "delivery-link"
+        copy_file_link.symlink_to(copied)
+        copy_dir_link.symlink_to(copied_dir, target_is_directory=True)
+        reject("C copied CSV symlink", ["train.py", "--csv", str(copy_file_link)],
+               {"NAZAR_SOURCE": "real"}, "SHA256 fingerprint")
+        reject("C copied directory symlink", build,
+               {"NAZAR_SOURCE": "real", "NAZAR_RAW_DIR": str(copy_dir_link)}, "SHA256 fingerprint")
+        manifest = json.loads((fixture / "manifest.json").read_text())
+        probe = "from src.paths import validate_raw_source; import sys; validate_raw_source(sys.argv[1])"
+        for i, name in enumerate(manifest["files"]):
+            renamed = tmp / f"unrelated-name-{i}.bin"
+            shutil.copyfile(fixture / name, renamed)
+            reject(f"fingerprint raw {i + 1}", ["-c", probe, str(renamed)],
+                   {"NAZAR_SOURCE": "real"}, "SHA256 fingerprint")
+        mixed = tmp / "mixed-input"
+        mixed.mkdir()
+        (mixed / "new.csv").write_text("new customer input\\n")
+        shutil.copyfile(csv, mixed / "unexpected.dat")
+        reject("one fake among other files", build,
+               {"NAZAR_SOURCE": "real", "NAZAR_RAW_DIR": str(mixed)}, "SHA256 fingerprint")
+        nested = tmp / "nested-input"
+        nested.mkdir()
+        (nested / "linked-subdir").symlink_to(mixed, target_is_directory=True)
+        reject("nested directory symlink", build,
+               {"NAZAR_SOURCE": "real", "NAZAR_RAW_DIR": str(nested)}, "SHA256 fingerprint")
+        fresh = tmp / "fresh.csv"
+        fresh.write_text("unknown customer fingerprint\\n")
+        accepted = subprocess.run([PY, "-c", probe, str(fresh)], cwd=ROOT,
+                                  env={**env, "NAZAR_SOURCE": "real"}, capture_output=True)
+        assert accepted.returncode == 0, "неизвестный fingerprint должен приниматься"
+        assert snapshot() == baseline and status() == git_before
+        print("OK unknown fingerprint accepted; real SHA256/absence и git status без изменений")
         file_link, dir_link = tmp / "input.csv", tmp / "input-dir"
         file_link.symlink_to(csv)
         dir_link.symlink_to(fixture, target_is_directory=True)

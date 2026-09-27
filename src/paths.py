@@ -15,6 +15,9 @@ from __future__ import annotations
 
 import os
 import sys
+import hashlib
+import json
+from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,18 +53,50 @@ _raw = os.environ.get("NAZAR_RAW_DIR")
 RAW_DIR = canonical(_raw if _raw else (FAKE_RAW if FAKE else REAL_RAW))
 
 
+@lru_cache(maxsize=1)
+def fake_fingerprints():
+    """Единственный список известных raw SHA256 — версионируемый manifest fixture."""
+    try:
+        manifest = json.loads((FAKE_RAW / "manifest.json").read_text(encoding="utf-8"))
+        files = manifest["files"]
+        if not isinstance(files, dict) or not files:
+            raise ValueError("empty files")
+        hashes = frozenset(files.values())
+        if any(not isinstance(h, str) or len(h) != 64
+               or any(c not in "0123456789abcdef" for c in h) for h in hashes):
+            raise ValueError("invalid SHA256")
+        return hashes
+    except (OSError, ValueError, KeyError, TypeError):
+        raise SourceError("не удалось прочитать SHA256 manifest fake fixture; "
+                          "восстановите tests/fixtures/fake_export/manifest.json.") from None
+
+
 def validate_raw_source(path, *, recursive=False):
-    """Проверка известных тестовых источников, не распознавание произвольных копий."""
+    """Известные расположения и точные копии fake raw; неизвестные SHA256 допустимы."""
     resolved = canonical(path)
     if not FAKE:
         for forbidden in (FAKE_RAW, ROOT / "tests/fixtures/synth", ROOT / "data/synth"):
             if resolved.is_relative_to(canonical(forbidden)):
                 raise SourceError("fake fixture / synthetic corpus нельзя использовать в real mode; "
                                   "выберите настоящий источник или NAZAR_SOURCE=fake для теста.")
-    if recursive and resolved.is_dir():
-        for child in resolved.rglob("*"):
-            if child.is_symlink():
-                validate_raw_source(child)
+        if resolved.is_file():
+            known = fake_fingerprints()
+            with resolved.open("rb") as stream:
+                fingerprint = hashlib.file_digest(stream, "sha256").hexdigest()
+            if fingerprint in known:
+                raise SourceError("известная fake fixture по SHA256 fingerprint: "
+                                  "этот файл нельзя использовать в real mode.")
+    if recursive and not FAKE and resolved.is_dir():
+        pending, seen = [resolved], set()
+        while pending:
+            directory = pending.pop()
+            if directory in seen:
+                continue
+            seen.add(directory)
+            for child in directory.iterdir():
+                checked = validate_raw_source(child)
+                if checked.is_dir():
+                    pending.append(checked)
     return resolved
 
 _work = os.environ.get("NAZAR_WORK_DIR")
