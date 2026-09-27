@@ -49,7 +49,7 @@ SHOW = 20             # сколько новых категорий печат�
 def _masked(v: str) -> str:
     """Категория на экран: справочник, но при сдвиге полей туда попадали ПДн (раздел 1)."""
     from src.checks.person_names import person_hits, safe
-    from src.synth.checks import pii_hits
+    from src.checks.privacy import pii_hits
     if person_hits(v):
         return safe(v)
     if pii_hits(v):

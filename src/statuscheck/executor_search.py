@@ -21,7 +21,7 @@ import pandas as pd
 from src import paths
 from src.statuscheck.frame import FRAME
 from src.statuscheck.load import SPEC, _capture
-from src.synth.checks import pii_hits
+from src.checks.privacy import pii_hits
 
 OUT = paths.REPORTS_DIR / "5o" / "executor_search.md"
 MIN_REPEAT, COVERAGE = 20, 0.90

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.checks.privacy import pii_hits
 from src.synth import checks
 from src.synth import privacy
 from src.synth.noise import apply_noise
@@ -66,7 +67,7 @@ def build() -> dict:
                "author": "Codex" if i in CODEX_A_IDS else "Claude Code"}
               for i in sorted(tasks)]
     noisy = apply_noise(source)
-    if any(checks.pii_hits(r["text"], extra) for r in noisy):
+    if any(pii_hits(r["text"], extra) for r in noisy):
         raise ValueError("ПДн после внесения шума")
     a_rows, split_summary = assign(noisy)
 
@@ -78,7 +79,7 @@ def build() -> dict:
         raise ValueError("повторные id в C")
     if len({r["text"] for r in c_rows}) != EXPECTED_C:
         raise ValueError("повторные тексты в C")
-    if any(checks.pii_hits(r["text"]) for r in c_rows):
+    if any(pii_hits(r["text"]) for r in c_rows):
         raise ValueError("ПДн в C")
     expected_counts = {(topic, lang): 40 for topic in TOPICS for lang in ("ru", "kk")}
     actual_counts = Counter((r["label"], r["lang"]) for r in c_rows)

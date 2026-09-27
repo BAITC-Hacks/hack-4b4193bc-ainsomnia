@@ -49,6 +49,10 @@ def main() -> int:
     else:
         from test_source_isolation import snapshot
     real_before = snapshot()
+    boundary = run([PY, str(ROOT / "tests/test_privacy_boundary.py")])
+    if boundary.returncode:
+        print("FAIL: production privacy boundary (подробности — отдельным тестом)")
+        return 1
     guard = run([PY, str(ROOT / "tests/test_source_isolation.py")])
     check(guard.returncode == 0, "изоляция источников: отрицательные регрессии и SHA256 real")
     if guard.returncode:
