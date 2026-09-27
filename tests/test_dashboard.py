@@ -9,7 +9,7 @@ import tempfile
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-CASES = ("filters", "no_data", "no_predictions", "corrupt", "no_font", "no_chrome")
+CASES = ("filters", "no_data", "no_predictions", "corrupt", "no_font", "no_chrome", "failed_build")
 
 
 def exercise(case):
@@ -21,6 +21,9 @@ def exercise(case):
         paths.PREDICTIONS.rename(paths.PREDICTIONS.with_suffix(".unused"))
     elif case == "corrupt":
         paths.UNIFIED.write_bytes(b"deliberately invalid parquet")
+    elif case == "failed_build":
+        import json
+        (paths.DATA_DIR / "last_build.json").write_text(json.dumps({"source": "fake", "state": "failed"}))
     elif case == "no_font":
         import src.export as ex
         ex.FONT_CANDIDATES[:] = []
@@ -43,6 +46,9 @@ def exercise(case):
         assert "повреждены" in text("error")
         assert "Traceback" not in text("error") and "invalid parquet" not in text("error")
         assert not at.subheader
+    elif case == "failed_build":
+        assert "BLOCKED" in text("error")
+        assert [s.value for s in at.subheader] == ["Качество и свежесть данных"]
     elif case in ("no_font", "no_chrome"):
         next(b for b in at.button if b.label == "Собрать PDF").click().run()
         assert not at.exception

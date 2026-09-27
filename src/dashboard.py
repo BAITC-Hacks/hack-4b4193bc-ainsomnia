@@ -630,6 +630,14 @@ def main():
                  "Повторите проверенную сборку nazar-build-data; аналитика не показана.")
         st.stop()
 
+    # A mismatched release must not feed the analytical sections.
+    from src.health_view import health_section
+    from src.data_health import load as load_health
+    _, blocked = load_health()
+    if blocked:
+        health_section(st)
+        st.stop()
+
     # Порядок — «что случилось → почему → что дальше». Шапка стоит первой, но
     # заполняется после ленты и блока риска: её числа — это секция «Требует
     # внимания» при текущих фильтрах ленты и рабочая точка блока риска.
@@ -645,6 +653,9 @@ def main():
     # ---------------- 3. риск просрочки (только Караганда, из reports/)
     work = risk_section(st)
     top_cards(head, df, info, work)
+    st.divider()
+
+    health_section(st)
     st.divider()
 
     # ---------------- 4. структура потока

@@ -63,6 +63,7 @@ BUILD_STEPS = (
     # меняются всегда. tests.test_topic_coverage — для правок src/topic_mapping.py.
     ("проверка разметки: «прочее», сопоставление категорий, новые категории",
      "src.checks.labeling"),
+    ("качество, изменение и свежесть данных", "src.data_health"),
 )
 
 
@@ -77,23 +78,33 @@ def build_data():
     require(BASE_DIR, "каталога с сырыми выгрузками", RAW_HINT)
     paths.validate_raw_source(BASE_DIR, recursive=True)
     paths.validate_work_dir(paths.WORK)
-    if not paths.FAKE:
-        from src.dataset_manifest import ManifestError, verify
-        try:
-            verify()
-        except ManifestError as exc:
-            sys.stderr.write(str(exc) + "\n")
-            return 2
+    from src.dataset_manifest import ManifestError, generate, verify, write_json
+    from datetime import datetime, timezone
+    input_manifest = None
+    def state(value, stage):
+        write_json(paths.DATA_DIR / "last_build.json", {"state": value, "stage": stage,
+                   "source": paths.SOURCE, "timestamp": datetime.now(timezone.utc).isoformat(),
+                   "dataset_id": input_manifest["dataset_id"] if input_manifest else None})
+    try:
+        input_manifest = (generate(BASE_DIR, include_xlsx=False, source="fake") if paths.FAKE else verify())
+    except ManifestError as exc:
+        sys.stderr.write(str(exc) + "\n")
+        state("failed", 0)
+        return 2
+    state("running", 0)
     if paths.FAKE:
         print(f"ПОДДЕЛЬНАЯ ВЫГРУЗКА: {BASE_DIR} -> результаты в {paths.DATA_DIR} (CLAUDE.md, 5p)")
     for i, (title, module) in enumerate(BUILD_STEPS, start=1):
+        state("running", i)
         print(f"\n=== Шаг {i} из {len(BUILD_STEPS)}: {title}", flush=True)
         code = subprocess.run([sys.executable, "-m", module]).returncode
         if code:
+            state("failed", i)
             sys.stderr.write(
                 f"\nШаг {i} «{title}» завершился с ошибкой (код {code}). Дальше не иду: "
                 f"следующие шаги читают то, что пишет этот. Сообщение шага — выше.\n")
             return code
+    state("ok", len(BUILD_STEPS))
     print("\nГотово: data/unified.parquet собран и проверен. Витрина: "
           ".venv/bin/nazar-dashboard")
     return 0
