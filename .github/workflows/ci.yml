@@ -99,3 +99,5 @@ jobs:
           uv pip install --python .venv/bin/python --no-deps -e .
       - name: Генерация, три команды в режиме fake, эталон 5p, вариант с новой категорией
         run: .venv/bin/python tests/test_fake_export.py
+      - name: Принятие версии manifest на искусственных CSV
+        run: .venv/bin/python -m unittest tests.test_dataset_manifest

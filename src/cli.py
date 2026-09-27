@@ -77,6 +77,13 @@ def build_data():
     require(BASE_DIR, "каталога с сырыми выгрузками", RAW_HINT)
     paths.validate_raw_source(BASE_DIR, recursive=True)
     paths.validate_work_dir(paths.WORK)
+    if not paths.FAKE:
+        from src.dataset_manifest import ManifestError, verify
+        try:
+            verify()
+        except ManifestError as exc:
+            sys.stderr.write(str(exc) + "\n")
+            return 2
     if paths.FAKE:
         print(f"ПОДДЕЛЬНАЯ ВЫГРУЗКА: {BASE_DIR} -> результаты в {paths.DATA_DIR} (CLAUDE.md, 5p)")
     for i, (title, module) in enumerate(BUILD_STEPS, start=1):

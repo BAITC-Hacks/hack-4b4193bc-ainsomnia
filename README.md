@@ -50,12 +50,17 @@ export NAZAR_SOURCE=fake
 export NAZAR_SOURCE=real
 unset NAZAR_WORK_DIR
 export NAZAR_RAW_DIR=/absolute/path/to/authorized-export
+.venv/bin/python -m src.dataset_manifest
+# Просмотрите data/raw_candidate.json и подставьте напечатанный dataset_id:
+.venv/bin/python -m src.dataset_manifest --accept ID
 .venv/bin/nazar-build-data
 .venv/bin/python train.py
 .venv/bin/nazar-dashboard
 ```
 
 Замените путь на свой каталог, сохранив имена файлов и устройство подкаталога Павлодара. Без `NAZAR_RAW_DIR` используется прежний каталог `drive-download-20260907T161509Z-1-001/` в корне проекта. Пути задаёт `src/paths.py`.
+
+Manifest фиксирует версию всех 12 файлов, включая XLSX, которые не добавляются в канон повторно. Принятые версии лежат в `data/manifests/`, вне git. `python -m src.dataset_manifest --check` проверяет текущие байты; при изменении сырья сборка останавливается до адаптеров. Для новой выгрузки повторите создание, просмотр и явное принятие кандидата. Это не меняет эталон тем. Формат и границы — [CLAUDE.md, 0e](CLAUDE.md#0e-операционный-центр-109--границы-и-план-2026-09-27).
 
 Для исходной выгрузки контрольный итог — **988 776 строк**: `problem` 658 103, `info` 308 305, `system` 22 368. Результаты: `data/unified.parquet`, `reports/metrics.json`, `reports/predictions.csv`, `models/model.pkl`. Для этой же выгрузки несовпадение эталона требует разбора. На новой выгрузке абсолютное число строк может измениться: сборка проверяет свойства разметки и новые категории, а не требует прежнего объёма.
 

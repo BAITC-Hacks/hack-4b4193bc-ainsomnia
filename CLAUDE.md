@@ -50,6 +50,10 @@ uv pip install --python .venv/bin/python --no-deps -e .
 
 # 4–7. Сборка данных — одна команда: адаптеры -> сводная таблица -> темы ->
 #      проверка разметки, строго по порядку; на первой ошибке останавливается.
+# Перед первой REAL-сборкой или при смене выгрузки — фиксируем вход (0e):
+.venv/bin/python -m src.dataset_manifest
+# Прочитайте data/raw_candidate.json; ID — напечатанный dataset_id:
+.venv/bin/python -m src.dataset_manifest --accept ID
 .venv/bin/nazar-build-data
 
 # 8. Витрина — одна команда.
