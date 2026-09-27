@@ -54,21 +54,43 @@ def exercise(case):
         assert not at.exception
         assert "PDF" in text("warning") + text("error")
     else:
-        def cards_match():
+        from src.operations import snapshot
+        from src.event_service import load_events, mark_new, region_last_day
+        daily, _, all_events = load_events()
+        last_day = region_last_day(daily)
+        expected=snapshot()['new_spikes']
+        def cards_match(filtered):
             assert not at.exception
-            card = next(m.value for m in at.markdown if "Всплесков требуют внимания" in m.value)
-            number = int(re.findall(r">(\d+)</div>$", card)[0])
+            card = next(m.value for m in at.markdown if 'nazar-metric-label">Новых всплесков' in m.value)
+            number = int(re.findall(r'nazar-metric-value">([^<]+)', card)[0].replace(' ', ''))
+            # Executive queue is global; filters only change the event feed.
+            assert number == expected
             section = next(m.value for m in at.markdown if m.value.startswith("#### Требует внимания"))
-            assert number == int(re.findall(r"\d+", section)[0])
-        cards_match()
+            assert int(re.findall(r"\d+", section)[0]) == filtered
+        cards_match(expected)
+        assert [t.label for t in at.tabs] == ['Оперативно','Планирование','Контроль','Аналитика','Отчёты']
         at.radio(key="ev_order").set_value("по тому, во сколько раз больше обычного").run()
-        cards_match()
+        cards_match(expected)
         at.multiselect(key="ev_reg").set_value(["Костанайская область"]).run()
-        cards_match()
+        own = all_events[all_events["регион"] == "Костанайская область"]
+        cards_match(int(mark_new(own, last_day, 7)["новое"].sum()))
         at.number_input(key="ev_new").set_value(1).run()
-        cards_match()
+        cards_match(int(mark_new(own, last_day, 1)["новое"].sum()))
         at.multiselect(key="ev_reg").set_value([]).run()
-        cards_match()
+        cards_match(0)
+        at.toggle(key='presentation').set_value(True).run()
+        cards_match(0)
+        next(b for b in at.button if b.label=='Сбросить фильтры событий').click().run()
+        cards_match(expected)
+        assert any('ТЕСТОВЫЕ ДАННЫЕ' in m.value for m in at.markdown)
+        next(b for b in at.button if b.label=='Сформировать оперативную сводку').click().run()
+        assert not at.exception and 'ПОДДЕЛЬНЫЕ ДАННЫЕ' in at.session_state['brief_html']
+        saved_brief = at.session_state['brief_html']
+        at.run()
+        assert at.session_state['brief_html'] == saved_brief
+        paths.UNIFIED.touch()  # A new file revision must retire the previous downloadable brief.
+        at.run()
+        assert not at.exception and 'brief_html' not in at.session_state
         general_period = [v for v in at.date_input if not str(v.key).startswith("ev_")][0]
         day = general_period.value[0]
         general_period.set_value((day,)).run()
