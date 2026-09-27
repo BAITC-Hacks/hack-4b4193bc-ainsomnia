@@ -26,6 +26,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
 import joblib
 
+from src import paths
+
+# Печатается первой строкой отчёта и пишется в metrics.json (CLAUDE.md, 5p).
+FAKE_NOTE = ("ПОДДЕЛЬНЫЕ ДАННЫЕ (NAZAR_SOURCE=fake): метрики модели на них бессмысленны и "
+             "существуют только для того, чтобы блок риска витрины отрисовался.")
+
 warnings.filterwarnings("ignore", category=UserWarning)
 
 DATE_FMT = "%m/%d/%y %H:%M"
@@ -415,13 +421,21 @@ def write_baseline_report(y, ops, results, main_key):
     for metric, lab in (("recall", "recall = 0.80"), ("precision", "precision = 0.65")):
         for who in ("справочник", "модель"):
             r = t[metric][who]
+            if r is None:   # целевая точка недостижима — сказать, а не падать с TypeError
+                md.append(f"| {lab} | {who} | — | — | недостижимо | недостижимо |")
+                continue
             md.append(f"| {lab} | {who} | {r['threshold']:.4f} | {r['n_flagged']} | "
                       f"**{r['precision']:.4f}** | **{r['recall']:.4f}** |")
-    dr = t["recall"]["модель"]["precision"] - t["recall"]["справочник"]["precision"]
-    dp = t["precision"]["модель"]["recall"] - t["precision"]["справочник"]["recall"]
-    md.append(f"\nПри равном recall модель точнее на **{dr:+.4f}** precision.  ")
-    md.append(f"При равной precision модель ловит на **{dp:+.4f}** recall больше — "
-              f"это {100*dp/t['precision']['справочник']['recall']:.0f}% относительного прироста.\n")
+    reach = all(t[m][w] is not None for m in ("recall", "precision") for w in ("справочник", "модель"))
+    if reach:
+        dr = t["recall"]["модель"]["precision"] - t["recall"]["справочник"]["precision"]
+        dp = t["precision"]["модель"]["recall"] - t["precision"]["справочник"]["recall"]
+        md.append(f"\nПри равном recall модель точнее на **{dr:+.4f}** precision.  ")
+        md.append(f"При равной precision модель ловит на **{dp:+.4f}** recall больше — "
+                  f"это {100*dp/t['precision']['справочник']['recall']:.0f}% относительного прироста.\n")
+    else:
+        md.append("\nХотя бы одна целевая точка недостижима — сравнение в сопоставимых точках "
+                  "не считается.\n")
     md.append(f"**Гранулярность.** Справочник выдаёт на тесте всего "
               f"**{ops['distinct_values']['baseline']}** различных значений вероятности "
               f"против **{ops['distinct_values']['model']}** у модели (по неокруглённым "
@@ -470,10 +484,13 @@ def write_baseline_report(y, ops, results, main_key):
               "базой, «добавляет» — от прироста справочника над базой.\n")
 
     md.append("\n## 4. Вывод\n")
-    md.append("Модель выигрывает у справочника **во всех сопоставимых точках** — при равном "
-              "recall, при равной precision и на каждом уровне просмотра. Наибольший отрыв "
-              f"при равной точности: recall {t['precision']['модель']['recall']:.4f} против "
-              f"{t['precision']['справочник']['recall']:.4f}.\n")
+    if reach:
+        md.append("Модель выигрывает у справочника **во всех сопоставимых точках** — при равном "
+                  "recall, при равной precision и на каждом уровне просмотра. Наибольший отрыв "
+                  f"при равной точности: recall {t['precision']['модель']['recall']:.4f} против "
+                  f"{t['precision']['справочник']['recall']:.4f}.\n")
+    else:
+        md.append("Вывод в сопоставимых точках не делается: хотя бы одна из них недостижима.\n")
     md.append("Справочник остаётся честной нижней планкой: он не требует обучения, "
               "обновляется одним `groupby` и закрывает "
               f"{100*L['pr_auc']['baseline_share']:.0f}% прироста по PR-AUC. "
@@ -481,17 +498,18 @@ def write_baseline_report(y, ops, results, main_key):
     md.append("\n---\n")
     md.append("Таргет: `days > 15` суток. Порог взят из ТЗ, нормативом не является и "
               "остаётся **открытым вопросом** — см. CLAUDE.md, раздел 3.\n")
-    Path("reports").mkdir(exist_ok=True)
-    Path("reports/baseline_vs_model.md").write_text("\n".join(md), encoding="utf-8")
+    paths.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    paths.BASELINE_REPORT.write_text("\n".join(md), encoding="utf-8")
 
 # --------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default="drive-download-20260907T161509Z-1-001/"
-                                     "Обращения граждан 109 - Карагандинская область.csv")
+    ap.add_argument("--csv", default=str(paths.RAW_DIR / paths.KARAGANDA_CSV))
     ap.add_argument("--cutoff", default="2023-07-01")
     ap.add_argument("--sla-days", type=float, default=15)
     a = ap.parse_args()
+    if paths.FAKE:
+        print(f"ВНИМАНИЕ. {FAKE_NOTE}\n")
 
     df_raw, n_quotes, n_type = load_and_clean(a.csv)
     df, share_all, trunc_ratio = build_target(df_raw, a.sla_days)
@@ -613,15 +631,17 @@ def main():
 
     # --- артефакты ---
     hr("ШАГ 7. АРТЕФАКТЫ")
-    Path("reports").mkdir(exist_ok=True); Path("models").mkdir(exist_ok=True)
+    paths.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    paths.MODELS_DIR.mkdir(parents=True, exist_ok=True)
     out = test[["created_date"] + cat + num].copy()
     out["y_true"] = yte.values
     out["y_prob"] = np.round(p_main, 6)
     out["y_prob_baseline"] = np.round(probs["baseline_subcat"], 6)
     out["y_pred_0.5"] = (p_main >= 0.5).astype(int)
     out["y_pred_tuned"] = (p_main >= thr_main).astype(int)
-    out.to_csv("reports/predictions.csv", index=False, encoding="utf-8-sig")
-    json.dump({"main_model": main_key, "dropped_features": DROPPED,
+    out.to_csv(paths.PREDICTIONS, index=False, encoding="utf-8-sig")
+    meta = {"source": "fake", "source_note": FAKE_NOTE} if paths.FAKE else {}
+    json.dump({**meta, "main_model": main_key, "dropped_features": DROPPED,
                "data": {"rows_raw": len(df_raw) + n_quotes + n_type,
                         "dropped_broken_quotes": n_quotes, "dropped_bad_appeal_type": n_type,
                         "sample": len(df), "share_y1": float(share_all),
@@ -631,11 +651,11 @@ def main():
                         "sla_days": a.sla_days, "sla_source": "ТЗ (догадка), не норматив"},
                "limitations": lims, "thresholds": thrs, "models": results,
                "permutation_importance_top15": top, "calibration_deciles": calib},
-              open("reports/metrics.json", "w", encoding="utf-8"),
+              open(paths.METRICS, "w", encoding="utf-8"),
               ensure_ascii=False, indent=2)
-    joblib.dump(model, "models/model.pkl")
-    for f in ("reports/metrics.json", "reports/predictions.csv", "models/model.pkl"):
-        print(f"  {f:28s} {Path(f).stat().st_size:>10d} байт")
+    joblib.dump(model, paths.MODEL)
+    for f in (paths.METRICS, paths.PREDICTIONS, paths.MODEL):
+        print(f"  {str(f.relative_to(paths.ROOT)):28s} {f.stat().st_size:>10d} байт")
 
     # --- ИТОГО ---
     m5, mt = results[main_key]["at_0.5"], results[main_key]["at_tuned"]

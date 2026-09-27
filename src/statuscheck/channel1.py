@@ -32,6 +32,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
+from src import paths
 from src.statuscheck.batches import sync_mask
 from src.statuscheck.frame import FRAME
 from src.statuscheck.load import load
@@ -39,7 +40,7 @@ from src.statuscheck.observability import CELL_COMPLAINTS, CELL_SERVICES, CH1_CL
 from src.checks.person_names import person_hits, safe as person_safe
 from src.synth.checks import pii_hits
 
-OUT = Path("reports/5o")
+OUT = paths.REPORTS_DIR / "5o"
 WINDOW, BURST, DAYS, SEED = 600, 5, 3, 42
 REGIONS = ("Костанайская область", "Туркестанская область", "Восточно-Казахстанская область")
 

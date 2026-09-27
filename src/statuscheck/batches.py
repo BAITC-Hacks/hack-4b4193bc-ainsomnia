@@ -23,10 +23,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src import paths
 from src.statuscheck.frame import FRAME
 from src.statuscheck.load import load
 
-OUT = Path("reports/5o")
+OUT = paths.REPORTS_DIR / "5o"
 SYNC_SERVICES, SYNC_PER_SERVICE = 3, 3
 MIN_CLOSURES, SERVICE_SHARE, MAJORITY = 100, 0.10, 0.50
 REGIONS = ("Туркестанская область", "Костанайская область")

@@ -20,9 +20,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from src import paths
 
 ROOT = Path(__file__).resolve().parents[1]
-UNIFIED = Path("data/unified.parquet")
+UNIFIED = paths.UNIFIED
 BUILD_HINT = ("соберите её одной командой: .venv/bin/nazar-build-data "
               "(раздел 0 CLAUDE.md; нужны сырые выгрузки)")
 RAW_HINT = ("сырых выгрузок в репозитории нет и не будет — в них персональные данные. "
@@ -72,6 +73,11 @@ def build_data():
     os.chdir(ROOT)
     from src.adapters.adapters import BASE_DIR
     require(BASE_DIR, "каталога с сырыми выгрузками", RAW_HINT)
+    # Отметка источника: витрина по ней показывает плашку «ПОДДЕЛЬНЫЕ ДАННЫЕ» (5p).
+    paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    paths.SOURCE_MARK.write_text(paths.SOURCE + "\n", encoding="utf-8")
+    if paths.FAKE:
+        print(f"ПОДДЕЛЬНАЯ ВЫГРУЗКА: {BASE_DIR} -> результаты в {paths.DATA_DIR} (CLAUDE.md, 5p)")
     for i, (title, module) in enumerate(BUILD_STEPS, start=1):
         print(f"\n=== Шаг {i} из {len(BUILD_STEPS)}: {title}", flush=True)
         code = subprocess.run([sys.executable, "-m", module]).returncode

@@ -29,11 +29,12 @@ import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu, spearmanr
 
+from src import paths
 from src.statuscheck.frame import FRAME
 from src.statuscheck.load import load
 from src.statuscheck.observability import CELL_SERVICES, CH3_SHARE, CH3_SPIKES
 
-OUT = Path("reports/5o")
+OUT = paths.REPORTS_DIR / "5o"
 REGIONS = ("Костанайская область", "Туркестанская область",
            "Восточно-Казахстанская область", "Алматинская область")
 CLOSED_MIN, PLACEBO, SHIFT, RHO_NOISE, LASTYEAR_MIN, SEED = 0.8, 200, 14, 0.9, 10, 42

@@ -33,14 +33,15 @@ from pathlib import Path
 
 import pandas as pd
 
+from src import paths
 from src.checks.person_names import safe as safe_name
 from src.export import PdfUnavailable, build_excel, build_pdf, check_export_pii
 from src.spikes import (classify_seasonal, daily_counts, detect, gap_days,
                         with_duration)
 from src.topic_mapping import classify_appeal, map_topic
 
-DATA = Path("data/unified.parquet")
-OUT = Path("reports/demo")
+DATA = paths.UNIFIED
+OUT = paths.REPORTS_DIR / "demo"
 REGION = "Костанайская область"
 TOPIC = "благоустройство и озеленение"
 # Старт показа — за 49 суток до эпизода 29.09.2025. Двух условий сразу: окно
@@ -461,6 +462,11 @@ def main():
                          f"{STREAM_BUDGET} с на всё окно, но не больше {MAX_PAUSE} с")
     ap.add_argument("--no-export", action="store_true", help="не собирать файлы")
     a = ap.parse_args()
+    if paths.FAKE:
+        # В сценарии зашит настоящий эпизод Костаная (CLAUDE.md, 5j) — на поддельной
+        # выгрузке его нет. Набор 5p — для витрины и тестов, не для демо.
+        raise SystemExit("Демо-сценарий работает только на настоящей выгрузке: в нём зашит "
+                         "эпизод Костаная 29.09.2025 (CLAUDE.md, 5j). Уберите NAZAR_SOURCE=fake.")
 
     days = len(pd.date_range(DAY_FROM, DAY_TO))
     if a.pause is None:

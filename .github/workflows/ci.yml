@@ -82,3 +82,20 @@ jobs:
       - name: Журнал контейнера
         if: always()
         run: docker logs nazar 2>&1 | tail -80
+
+  fake-export:
+    # Поддельная выгрузка (CLAUDE.md, 5p): три команды без настоящих данных и сверка с эталоном
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Установка из requirements.lock
+        run: |
+          pip install uv==0.11.26
+          uv venv .venv --python 3.12
+          uv pip install --python .venv/bin/python --require-hashes -r requirements.lock
+          uv pip install --python .venv/bin/python --no-deps -e .
+      - name: Генерация, три команды в режиме fake, эталон 5p, вариант с новой категорией
+        run: .venv/bin/python tests/test_fake_export.py

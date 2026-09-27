@@ -34,10 +34,11 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+from src import paths
 
-DATA = Path("data/unified.parquet")
-BASE = Path("tests/topic_map_baseline.json")
-REVIEW = Path("data/labeling_review.csv")
+DATA = paths.UNIFIED
+BASE = paths.ROOT / "tests" / "topic_map_baseline.json"
+REVIEW = paths.DATA_DIR / "labeling_review.csv"
 OTHER_MAX = 0.15      # раздел 5e: «прочее» внутри problem меньше 15% по каждому региону
 MIN_PROBLEM = 100     # регион с меньшим числом жалоб — доля «прочего» печатается, но не роняет
 NEW_NONPROBLEM_MAX = 30   # 1% жалоб самого малого региона (Акмола 3 421) — CLAUDE.md, 0b

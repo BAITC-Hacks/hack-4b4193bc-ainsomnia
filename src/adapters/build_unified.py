@@ -12,11 +12,12 @@
 import sys
 from pathlib import Path
 import pandas as pd
+from src import paths
 
 BANNED = {"com_exp", "result", "request_subject", "appeal_address", "street",
           "full_name", "applicant_number", "operator", "xcoordinate", "ycoordinate"}
-SRC = Path("data/by_region")
-OUT = Path("data/unified.parquet")
+SRC = paths.BY_REGION
+OUT = paths.UNIFIED
 
 def main():
     parts = sorted(SRC.glob("*.parquet"))

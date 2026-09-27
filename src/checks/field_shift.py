@@ -18,8 +18,9 @@ from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+from src import paths
 
-BASE = Path("drive-download-20260907T161509Z-1-001")
+BASE = paths.RAW_DIR
 FILES = {
     "Карагандинская": ["Обращения граждан 109 - Карагандинская область.csv"],
     "Алматинская": ["Обращения граждан 109 - Алматинская область.csv"],

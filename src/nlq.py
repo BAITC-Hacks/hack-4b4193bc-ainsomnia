@@ -32,8 +32,9 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from src import paths
 
-DATA = Path("data/unified.parquet")
+DATA = paths.UNIFIED
 FILL_WARN = 0.95        # поле заполнено ниже этой доли — оговорка обязательна
 COVER_WARN = 0.50       # регион покрывает меньше этой доли периода — он не в счёте
 MONTHS_RU = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль",

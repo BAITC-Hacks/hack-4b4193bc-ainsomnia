@@ -18,11 +18,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from src import paths
 from src.statuscheck.frame import FRAME
 from src.statuscheck.load import SPEC, _capture
 from src.synth.checks import pii_hits
 
-OUT = Path("reports/5o/executor_search.md")
+OUT = paths.REPORTS_DIR / "5o" / "executor_search.md"
 MIN_REPEAT, COVERAGE = 20, 0.90
 SKIP = {"full_name", "applicant_number", "operator", "xcoordinate", "ycoordinate",
         "appeal_address", "street", "com_exp", "result", "request_subject", "_source_file"}

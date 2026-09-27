@@ -17,10 +17,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from src import paths
 from src.statuscheck.frame import FRAME
 from src.statuscheck.load import SPEC, load
 
-OUT = Path("reports/5o")
+OUT = paths.REPORTS_DIR / "5o"
 CELL_SERVICES, CELL_COMPLAINTS, CH1_CLOSURES = 5, 30, 100
 CH2_OLD_DAYS, CH2_MIN = 60, 30
 CH3_SPIKES, CH3_SHARE = 3, 0.5

@@ -19,6 +19,7 @@ from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 import pandas as pd
+from src import paths
 
 TOPICS = ["ЖКХ", "водоснабжение и канализация", "теплоснабжение",
           "электроснабжение и освещение", "дороги", "транспорт",
@@ -197,7 +198,7 @@ def audit_rules(df):
         print(f"  {r:.2f}  {n:7d} строк  «{th[:52]}»  ~  правило «{k}» ({topic})")
 
 def main():
-    src = Path("data/unified.parquet")
+    src = paths.UNIFIED
     if not src.exists():
         sys.exit("нет data/unified.parquet — сначала src/adapters/build_unified.py")
     df = pd.read_parquet(src)

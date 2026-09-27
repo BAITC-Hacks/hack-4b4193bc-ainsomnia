@@ -15,11 +15,12 @@ import json
 import re
 from pathlib import Path
 
+from src import paths
 from src.statuscheck.frame import FRAME
 from src.statuscheck.load import SPEC
 from src.statuscheck.observability import SHORT
 
-OUT = Path("reports/5o")
+OUT = paths.REPORTS_DIR / "5o"
 CH = ("1. ритм закрытий", "2. зависшие", "3. поток после закрытия")
 
 

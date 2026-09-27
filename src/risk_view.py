@@ -21,11 +21,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from src import paths
 from src.checks.person_names import safe as safe_name
 from src.topic_mapping import map_topic
 
-PRED = Path("reports/predictions.csv")
-METRICS = Path("reports/metrics.json")
+PRED = paths.PREDICTIONS
+METRICS = paths.METRICS
 SHARES = (0.10, 0.20, 0.30)
 # Рабочая точка — 20% потока (раздел 6b): её показывает карточка шапки, и на ней
 # же по умолчанию открывается блок. Финальная доля зависит от ёмкости операторов.
@@ -72,7 +73,8 @@ def headline(path=METRICS):
     main = m["models"][m["main_model"]]["at_tuned"]
     base = m["models"]["dummy"]["at_0.5"]["pr_auc"]          # = доля класса 1 в тесте
     sub = m["models"]["baseline_subcat"]["at_0.5"]["pr_auc"]
-    return {"model": m["main_model"], "roc_auc": main["roc_auc"], "pr_auc": main["pr_auc"],
+    return {"source": m.get("source", "real"),
+            "model": m["main_model"], "roc_auc": main["roc_auc"], "pr_auc": main["pr_auc"],
             "base": base, "subcat_pr_auc": sub,
             # Та же доля, что в 4b: (справочник − база) / (модель − база).
             "subcat_closes": (sub - base) / (main["pr_auc"] - base),
@@ -109,6 +111,9 @@ def risk_section(st):
         return None
     h = headline()
     risk = load_risk()
+    if h["source"] == "fake":
+        st.error("**Поддельные данные: метрики модели бессмысленны.** Они существуют только "
+                 "для того, чтобы этот блок отрисовался (CLAUDE.md, 5p).")
     cutoff = pd.Timestamp(h["cutoff"])
     st.warning(
         f"**Прогноз построен и проверен только на Карагандинской области** и к другим "

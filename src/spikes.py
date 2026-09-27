@@ -37,8 +37,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
+from src import paths
 
-DATA = Path("data/unified.parquet")
+DATA = paths.UNIFIED
 DEEP_DIVE_REGIONS = ["Павлодарская область", "Карагандинская область"]
 SEASONAL_REGIONS = ["Павлодарская область", "Карагандинская область",
                     "Восточно-Казахстанская область"]

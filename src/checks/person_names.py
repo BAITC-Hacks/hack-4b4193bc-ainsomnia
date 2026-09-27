@@ -22,6 +22,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from src import paths
 from src.synth.checks import ALLOW, NAME_RE, SURNAME
 
 # Формы, которые всегда означают человека: индивидуальный предприниматель,
@@ -84,8 +85,8 @@ def person_hits(name) -> list[str]:
     return hits
 
 
-UNIFIED = Path("data/unified.parquet")
-PRED = Path("reports/predictions.csv")
+UNIFIED = paths.UNIFIED
+PRED = paths.PREDICTIONS
 
 
 def _key(name) -> str:

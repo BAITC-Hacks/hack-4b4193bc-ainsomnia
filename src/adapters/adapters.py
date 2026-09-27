@@ -39,17 +39,19 @@ import re
 
 import pandas as pd
 
+from src import paths
 from src.checks.field_shift import (almaty_shift_rules, karaganda_shift_rules,
                                      vko_shift_rules)
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
-BASE_DIR = os.path.join(PROJECT_ROOT, "drive-download-20260907T161509Z-1-001")
-OUT_DIR = os.path.join(PROJECT_ROOT, "data")
 
-# Ожидаемый итог сводной таблицы (CLAUDE.md, раздел 5c). Меняется вместе с правилами
-# отсева — при правке обновлять здесь и в 5c одновременно.
-EXPECTED_TOTAL = 988_776
+# Каталог выгрузки и результатов — src/paths.py (CLAUDE.md, 5p): настоящая выгрузка
+# по умолчанию, поддельная — при NAZAR_SOURCE=fake.
+BASE_DIR = str(paths.RAW_DIR)
+OUT_DIR = str(paths.DATA_DIR)
+
+# Ожидаемый итог сводной таблицы (CLAUDE.md, раздел 5c; для поддельной выгрузки — 5p).
+# Меняется вместе с правилами отсева — при правке обновлять здесь и в CLAUDE.md одновременно.
+EXPECTED_TOTAL = 12_910 if paths.FAKE else 988_776
 
 CANON_COLUMNS = ["created_at", "region", "category", "district", "executor", "status", "sla_breach"]
 MAX_DATE_FAIL_SHARE = 0.01  # 1% — порог, выше которого адаптер обязан упасть, а не молчать
@@ -64,6 +66,9 @@ INVENTORY_RAW_ROWS = {
     "Акмола": 3506,
     "Павлодар": 666634,
 }
+if paths.FAKE:   # поддельная выгрузка, CLAUDE.md, 5p
+    INVENTORY_RAW_ROWS = {"Караганда": 10000, "Костанай": 500, "Туркестан": 450, "ВКО": 500,
+                          "Алматы": 500, "Акмола": 400, "Павлодар": 600}
 
 
 # --------------------------------------------------------------------------- #
@@ -505,10 +510,15 @@ def run_all() -> dict[str, pd.DataFrame]:
     print("\n" + "=" * 70)
     print("Контроль сборки против CLAUDE.md, раздел «Контроль»")
     print("=" * 70)
-    print("Ожидаемая сумма ПОСЛЕ дедупа, ДО прочих отсевов: 990 032")
-    print(f"Ожидание CLAUDE.md (раздел 5c): {EXPECTED_TOTAL} = 990 032 - 32 (Акмола, "
-          "непарсящаяся дата) - 5 (Караганда, непарсящаяся дата) - 638 (Караганда, сдвиг "
-          "полей) - 578 (Алматы, сдвиг полей) - 3 (ВКО, сдвиг полей)")
+    if paths.FAKE:
+        print(f"ПОДДЕЛЬНАЯ ВЫГРУЗКА. Ожидание CLAUDE.md (раздел 5p): {EXPECTED_TOTAL} = 12 950 - 3 "
+              "(Акмола, непарсящаяся дата) - 2 (Караганда, непарсящаяся дата) - 20 (Караганда, "
+              "сдвиг полей) - 12 (Алматы, сдвиг полей) - 3 (ВКО, сдвиг полей)")
+    else:
+        print("Ожидаемая сумма ПОСЛЕ дедупа, ДО прочих отсевов: 990 032")
+        print(f"Ожидание CLAUDE.md (раздел 5c): {EXPECTED_TOTAL} = 990 032 - 32 (Акмола, "
+              "непарсящаяся дата) - 5 (Караганда, непарсящаяся дата) - 638 (Караганда, сдвиг "
+              "полей) - 578 (Алматы, сдвиг полей) - 3 (ВКО, сдвиг полей)")
     print(f"Фактическая сумма: {total}")
     if total != EXPECTED_TOTAL:
         print(

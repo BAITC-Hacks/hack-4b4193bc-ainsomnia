@@ -27,10 +27,11 @@ from pathlib import Path
 
 import plotly.io as pio
 
+from src import paths
 from src.nlq import answer, load, num, render
 
-OUT_MD = Path("reports/nlq.md")
-OUT_HTML = Path("reports/nlq_charts.html")
+OUT_MD = paths.REPORTS_DIR / "nlq.md"
+OUT_HTML = paths.REPORTS_DIR / "nlq_charts.html"
 
 # Дословно из tests/nlq_questions.md
 QUESTIONS = [

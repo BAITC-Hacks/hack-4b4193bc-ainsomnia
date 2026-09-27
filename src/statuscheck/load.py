@@ -21,9 +21,10 @@ from pathlib import Path
 import pandas as pd
 
 import src.adapters.adapters as A
+from src import paths
 from src.topic_mapping import classify_appeal, map_topic
 
-CACHE = Path("data/5o")
+CACHE = paths.DATA_DIR / "5o"
 
 # Что брать из сырья. closed — только ФАКТ закрытия: плановая дата Акмолы и
 # updated_date Караганды (дата последнего изменения записи, раздел 3) — не факт.

@@ -35,3 +35,10 @@ analysis/
 
 # pip install -e . (раздел 0)
 *.egg-info/
+
+# Поддельная выгрузка (CLAUDE.md, 5p): сам набор — в git, результаты его прогона — нет.
+# Набор без ПДн по построению; настоящие csv по-прежнему не попадают никуда.
+!tests/fixtures/fake_export/
+!tests/fixtures/fake_export/**/
+!tests/fixtures/fake_export/**/*.csv
+fake_run/

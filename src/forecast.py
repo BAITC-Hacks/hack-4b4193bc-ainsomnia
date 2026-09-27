@@ -38,9 +38,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from src import paths
 
-DATA = Path("data/unified.parquet")
-OUT = Path("reports/forecast.md")
+DATA = paths.UNIFIED
+OUT = paths.REPORTS_DIR / "forecast.md"
 REGIONS = ["Павлодарская область", "Восточно-Казахстанская область",
            "Карагандинская область", "Туркестанская область"]
 TOP_TOPICS = 5
