@@ -26,6 +26,17 @@ class ActionsTest(unittest.TestCase):
         self.assertEqual(out[-1]['reason'], 'gap')
         self.assertEqual(out, queue(h, events=ev.iloc[::-1], last_day=pd.Series({'R': pd.Timestamp('2020-01-31')})))
 
+    def test_forecast_signal_requires_transition_and_missing_risk_is_not_zero(self):
+        base={'region':'R','topic':None,'data_as_of':'2020-01-01','transition':False,
+              'demand':100.,'weeks':13,'model':'naive','reason':'season'}
+        health={'regions':{}}
+        self.assertEqual(queue(health,risk={'available':False},forecasts=[base]),[])
+        base['transition']=True
+        result=queue(health,forecasts=[base])
+        self.assertEqual(result[0]['type'],'FORECAST_CHANGE')
+        self.assertEqual(result[0]['evidence']['demand'],100.)
+        self.assertEqual(queue(health,risk={'blocked':True,'reason':'source'})[0]['severity'],'BLOCKED')
+
 
 if __name__ == '__main__':
     unittest.main()

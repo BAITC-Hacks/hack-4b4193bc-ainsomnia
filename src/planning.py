@@ -47,6 +47,8 @@ def capacity(demand, operators, hours, aht, reserve, *, weeks=13):
         raise ValueError('Нужны неотрицательные поток/часы/целое число операторов, AHT > 0, резерв < 100%, горизонт 13 недель')
     raw = operators * hours * 60 / aht
     usable = raw * (1-reserve)
+    if not math.isfinite(raw) or not math.isfinite(demand*1.2*aht/(60*(1-reserve))):
+        raise ValueError("Сценарий превышает числовой диапазон")
     return [dict(scenario=label, weeks=weeks, demand=demand*factor, raw_capacity=raw,
                  available_capacity=usable, utilization=demand*factor/usable if usable else None,
                  balance=usable-demand*factor,
