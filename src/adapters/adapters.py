@@ -54,6 +54,7 @@ OUT_DIR = str(paths.DATA_DIR)
 EXPECTED_TOTAL = 12_910 if paths.FAKE else 988_776
 
 CANON_COLUMNS = ["created_at", "region", "category", "district", "executor", "status", "sla_breach"]
+BUILD_COUNTS = {}
 MAX_DATE_FAIL_SHARE = 0.01  # 1% — порог, выше которого адаптер обязан упасть, а не молчать
 
 # Сырые размеры из CLAUDE.md, раздел 5 «Инвентарь данных» — для проверки на РАСХОЖДЕНИЕ
@@ -162,7 +163,7 @@ def _build_canon(
         if unexpected.any():
             print(
                 f"  [{name}] ВНИМАНИЕ: {int(unexpected.sum())} значений '{sla_breach_col}' "
-                f"не 'True'/'False': {sorted(raw.loc[unexpected].unique())[:5]}"
+                "не 'True'/'False'; исходные значения не выводятся"
             )
         out["sla_breach"] = mapped.astype("boolean")
     else:
@@ -201,6 +202,10 @@ def _finish(name: str, n_raw: int, dedup_dropped: int, date_dropped: int, canon:
         f"(контроль: {n_raw} - {dedup_dropped} - {date_dropped}{shift_c} = {check} [{ok}])"
     )
     _column_report(canon, name, absent)
+    BUILD_COUNTS[str(canon.region.iloc[0]) if len(canon) else name] = {
+        "raw_rows": n_raw, "dedup_dropped": dedup_dropped, "date_dropped": date_dropped,
+        "field_shift_dropped": shift_dropped, "output_rows": n_out,
+        "date_shift_proxy": date_dropped if name == "Акмола" else 0}
     return canon
 
 
@@ -447,8 +452,9 @@ def topic_dictionaries(canon: dict[str, pd.DataFrame]) -> None:
         value_sets[name] = set(vc.index)
         print(f"\n[{name}] уникальных значений category: {df['category'].nunique(dropna=True)}")
         print(f"[{name}] топ-20 по частоте:")
+        from src.checks.labeling import category_label
         for val, cnt in vc.head(20).items():
-            print(f"    {cnt:>7}  {val}")
+            print(f"    {cnt:>7}  {category_label(val)}")
 
     print("\n" + "-" * 70)
     print("Попарные пересечения словарей (буквальное совпадение строк category)")
@@ -532,6 +538,8 @@ def run_all() -> dict[str, pd.DataFrame]:
     topic_dictionaries(canon)
     write_region_parquets(canon, OUT_DIR)
     paths.write_source_marker(paths.SOURCE_MARK, BASE_DIR)
+    from src.dataset_manifest import write_json
+    write_json(paths.DATA_DIR / "build_counts.json", BUILD_COUNTS)
     return canon
 
 

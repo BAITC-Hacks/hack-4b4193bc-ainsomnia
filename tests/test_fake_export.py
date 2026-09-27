@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,10 @@ def main() -> int:
         for k, want in EXPECT.items():
             check(got.get(k) == want, f"{k}: {got.get(k)!r}" + ("" if got.get(k) == want else f", ожидалось {want!r}"))
 
+    ui = run([PY, "-m", "tests.test_dashboard"])
+    check(ui.returncode == 0, "витрина: отказы, фильтры, карточки, отсутствие traceback")
+    if ui.returncode:
+        print(ui.stdout)
     print("4. Отслеживаемые файлы")
     check(git_status() == before, "git status до и после прогона одинаков — поддельный прогон не пишет в git")
     check(snapshot() == real_before, "SHA256 настоящих артефактов после fake-прогона неизменны")
@@ -98,6 +103,35 @@ def main() -> int:
         check(b.returncode == 1, f"сборка упала с кодом 1 (фактически {b.returncode})")
         check("ВЫПАДАЕТ ИЗ ЖАЛОБ" in b.stdout and "класс info, 40 строк" in b.stdout,
               "сообщение: «ВЫПАДАЕТ ИЗ ЖАЛОБ … класс info, 40 строк»")
+
+    print("6. История профилей Data Health")
+    with tempfile.TemporaryDirectory() as directory:
+        raw, work = Path(directory) / "raw", Path(directory) / "work"
+        shutil.copytree(ROOT / "tests/fixtures/fake_export", raw)
+        shutil.copytree(Path(os.environ["NAZAR_WORK_DIR"]) / "data", work / "data")
+        original = json.loads((work / "data/data_health.json").read_text())
+        # Different raw version, unchanged aggregate contents. No rows are invented.
+        first = next(raw.glob("*.csv"))
+        first.write_bytes(first.read_bytes() + b"\n")
+        env_version = {"NAZAR_RAW_DIR": str(raw), "NAZAR_WORK_DIR": str(work)}
+        for attempt in range(2):
+            result = run([str(BIN / "nazar-build-data")], env_version)
+            check(result.returncode == 0, f"сборка новой версии / повтор {attempt + 1}")
+            current = json.loads((work / "data/data_health.json").read_text())
+            check(current["drift"]["available"] and not current["drift"]["changes"],
+                  "новый fingerprint, агрегаты прежние")
+            check(current["drift"]["previous_dataset_id"] == original["dataset_id"],
+                  "повтор не заменяет предыдущую отличающуюся версию")
+        before_failure = (work / "data/data_health.json").read_bytes()
+        # Break an expected header. Failure must retain the successful profile.
+        first.write_text("unexpected_header\nfixture\n")
+        failed = run([str(BIN / "nazar-build-data")], env_version)
+        check(failed.returncode == 2, "несовместимая схема отклонена")
+        check((work / "data/data_health.json").read_bytes() == before_failure,
+              "неуспешная сборка не заменяет успешный профиль")
+
+    check(git_status() == before and snapshot() == real_before,
+          "все дополнительные проверки сохранили git status и real SHA256")
 
     print("\nИТОГ:", "всё сошлось с 5p" if not FAIL else f"не сошлось {len(FAIL)}")
     return 1 if FAIL else 0
@@ -120,11 +154,15 @@ EXPECT = {
     "ПДн в сводной": {"телефон": 0, "12 цифр": 0, "адрес": 0, "отчество": 0, "названий-людей": 2, "строк с ними": 55},
     "витрина: исключений": 0,
     "витрина: блоки": ["Что сейчас важно", "Всплески жалоб", "Риск просрочки — только Карагандинская область",
+                       "Качество и свежесть данных",
                        "Из чего состоит поток обращений по регионам", "О чём жалуются", "Жалобы по месяцам",
                        "Общие цифры", "Выгрузка отчётов"],
     "витрина: плашка поддельных данных": True,
     "витрина: требуют внимания": "1",
     "витрина: блок риска маскирует ИП": True,
+    "health: строк / регионов / новых категорий / drift": [12910, 7, 0, False],
+    "health: gap Туркестана / интервалы": [92, 1],
+    "health: отсев Караганда / Алматы / ВКО / прокси Акмола": [20, 12, 3, 3],
 }
 
 # Замер — отдельным процессом, чтобы src.paths прочитал NAZAR_SOURCE=fake при импорте.
@@ -135,6 +173,17 @@ from src.dashboard import load_events
 from src import spikes
 from src.checks.pii_scan import scan_dir, scan_frame, total
 out = {}
+health = json.loads((paths.DATA_DIR / "data_health.json").read_text())
+regions = health["regions"]
+out["health: строк / регионов / новых категорий / drift"] = [
+    sum(r["rows"] for r in regions.values()), len(regions), sum(r["new_categories"] for r in regions.values()),
+    health["drift"]["available"]]
+tur = regions["Туркестанская область"]
+out["health: gap Туркестана / интервалы"] = [tur["longest_gap"], len(tur["gaps_ge7"])]
+out["health: отсев Караганда / Алматы / ВКО / прокси Акмола"] = [
+    regions[r]["discarded"]["field_shift_dropped"] for r in
+    ("Карагандинская область", "Алматинская область", "Восточно-Казахстанская область")] + [
+    regions["Акмолинская область"]["discarded"]["date_shift_proxy"]]
 u = pd.read_parquet(paths.UNIFIED)
 out["строк"] = len(u)
 t = pd.crosstab(u.region, u.appeal_class).reindex(columns=["problem", "info", "system"], fill_value=0)

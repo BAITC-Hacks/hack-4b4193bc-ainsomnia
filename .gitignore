@@ -43,3 +43,10 @@ analysis/
 !tests/fixtures/fake_export/**/
 !tests/fixtures/fake_export/**/*.csv
 fake_run/
+
+# Локальная конфигурация/закрытые ключи не публикуются.
+.env
+.env.*
+*.pem
+*.key
+.streamlit/secrets.toml
