@@ -1,0 +1,56 @@
+{
+  "runs": [
+    "massive-multilingual-e5-small-s42-20260924-2047",
+    "massive-multilingual-e5-small-s43-20260924-2055",
+    "massive-multilingual-e5-small-s44-20260924-2105",
+    "massive-multilingual-e5-small-s45-20260924-2115",
+    "massive-multilingual-e5-small-s46-20260924-2124"
+  ],
+  "seeds": [
+    42,
+    43,
+    44,
+    45,
+    46
+  ],
+  "macro_p10": [
+    0.8284163992153519,
+    0.8278843605824444,
+    0.8177869564388849,
+    0.8205930286494275,
+    0.8346351722620543
+  ],
+  "mean": 0.8258631834296326,
+  "sd": 0.006718478805150508,
+  "baselines_run": "massive-baselines-b-20260924-1317",
+  "verdicts": {
+    "label_probs": {
+      "baseline": 0.7780381389835028,
+      "gap_mean": 0.04782504444612978,
+      "gap_in_sd": 7.118433477748897,
+      "worst_gap": 0.03974881745538206,
+      "boot_ci": [
+        0.02740785643654525,
+        0.07397214172972791
+      ],
+      "c1": true,
+      "c2": true,
+      "c3": true,
+      "beats": true
+    },
+    "e5_frozen": {
+      "baseline": 0.6195131937224371,
+      "gap_mean": 0.20634998970719554,
+      "gap_in_sd": 30.713796335712765,
+      "worst_gap": 0.1982737627164478,
+      "boot_ci": [
+        0.18311981181170034,
+        0.22512988926220745
+      ],
+      "c1": true,
+      "c2": true,
+      "c3": true,
+      "beats": true
+    }
+  }
+}

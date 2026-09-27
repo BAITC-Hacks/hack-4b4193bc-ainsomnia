@@ -1,0 +1,45 @@
+# === СЫРЫЕ ДАННЫЕ — СОДЕРЖАТ ПЕРСОНАЛЬНЫЕ ДАННЫЕ, В РЕПОЗИТОРИЙ НЕ ПОПАДАЮТ НИКОГДА ===
+drive-download-*/
+data/
+raw/
+*.csv
+*.xlsx
+*.xls
+
+# === Построчные артефакты — могут содержать ПДн ===
+reports/predictions.csv
+reports/SOURCE
+models/
+
+# Агрегированные метрики коммитить можно:
+!reports/metrics.json
+
+# === Окружение ===
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# === Служебное ===
+.DS_Store
+.claude-flow/
+.claude/settings.local.json
+
+# Сводная таблица модуля 3 — реальные данные, не коммитится
+data/unified.parquet
+data/by_region/
+reports/demo/
+
+# Аналитический прогон «Х» — рабочий код и отчёты, не коммитятся
+analysis/
+
+# pip install -e . (раздел 0)
+*.egg-info/
+
+# Поддельная выгрузка (CLAUDE.md, 5p): сам набор — в git, результаты его прогона — нет.
+# Набор без ПДн по построению; настоящие csv по-прежнему не попадают никуда.
+!tests/fixtures/fake_export/
+!tests/fixtures/fake_export/**/
+!tests/fixtures/fake_export/**/*.csv
+fake_run/

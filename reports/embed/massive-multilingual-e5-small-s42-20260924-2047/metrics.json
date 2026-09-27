@@ -1,0 +1,108 @@
+{
+  "run": "massive-multilingual-e5-small-s42-20260924-2047",
+  "kind": "finetuned",
+  "model": "intfloat/multilingual-e5-small",
+  "seed": 42,
+  "lr": 0.0003,
+  "lr_search": [
+    {
+      "lr": 1e-05,
+      "val_macro_p10": 0.7599336457357684,
+      "probe_epochs": 3,
+      "seconds": 119.6
+    },
+    {
+      "lr": 3e-05,
+      "val_macro_p10": 0.7931395916762023,
+      "probe_epochs": 3,
+      "seconds": 118.3
+    },
+    {
+      "lr": 0.0001,
+      "val_macro_p10": 0.8206735137150376,
+      "probe_epochs": 3,
+      "seconds": 118.0
+    },
+    {
+      "lr": 0.0003,
+      "val_macro_p10": 0.8293581310022672,
+      "probe_epochs": 3,
+      "seconds": 118.4
+    },
+    {
+      "lr": 0.001,
+      "val_macro_p10": 0.7116975248734273,
+      "probe_epochs": 3,
+      "seconds": 139.0
+    }
+  ],
+  "epochs": 10,
+  "best_epoch": 10,
+  "best_val_macro_p10": 0.8305848720566387,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 2.175759528925319,
+      "val_macro_p10": 0.7853721585199112
+    },
+    {
+      "epoch": 2,
+      "train_loss": 1.7701592152704022,
+      "val_macro_p10": 0.7908310347565896
+    },
+    {
+      "epoch": 3,
+      "train_loss": 1.5853701265986093,
+      "val_macro_p10": 0.8239950234071404
+    },
+    {
+      "epoch": 4,
+      "train_loss": 1.4570853224771465,
+      "val_macro_p10": 0.8206813665804423
+    },
+    {
+      "epoch": 5,
+      "train_loss": 1.3801199304843377,
+      "val_macro_p10": 0.824513443874069
+    },
+    {
+      "epoch": 6,
+      "train_loss": 1.3308541853270845,
+      "val_macro_p10": 0.8236877503379127
+    },
+    {
+      "epoch": 7,
+      "train_loss": 1.286443933755338,
+      "val_macro_p10": 0.8167991606623168
+    },
+    {
+      "epoch": 8,
+      "train_loss": 1.2282451733857571,
+      "val_macro_p10": 0.8237602667487579
+    },
+    {
+      "epoch": 9,
+      "train_loss": 1.194280789283935,
+      "val_macro_p10": 0.8292225904281793
+    },
+    {
+      "epoch": 10,
+      "train_loss": 1.1812302630818532,
+      "val_macro_p10": 0.8305848720566387
+    }
+  ],
+  "test": {
+    "macro_p10": 0.8284163992153519,
+    "macro_p1": 0.8236747731850165,
+    "macro_hit10": 0.8570687697453924,
+    "micro_p10": 0.8457603844833504,
+    "n_queries": 2913
+  },
+  "train_seconds": 433.1,
+  "p": 16,
+  "k": 4,
+  "tau": 0.05,
+  "unfreeze_vocab": false,
+  "baselines_from": "reports/embed/massive-baselines-b-20260924-1317/metrics.json",
+  "perquery": "models/embed/massive-multilingual-e5-small-s42-20260924-2047/perquery_test.npz"
+}

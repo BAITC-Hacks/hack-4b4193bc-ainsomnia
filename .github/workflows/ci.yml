@@ -1,0 +1,101 @@
+# Проверки без данных и без секретов (CLAUDE.md, 5p, «Проверка на GitHub»).
+# Настоящие выгрузки в репозитории нет и в CI не попадают — они содержат ПДн (раздел 1).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-install:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: uv
+        run: pip install uv==0.11.26
+      - name: Установка из requirements.lock с проверкой хешей, затем проект без зависимостей
+        run: |
+          uv venv .venv --python 3.12
+          uv pip install --python .venv/bin/python --require-hashes -r requirements.lock
+          uv pip install --python .venv/bin/python --no-deps -e .
+      - name: Импорт модулей на пути сборки и витрины
+        run: |
+          .venv/bin/python -c "import src.cli, src.adapters.adapters, src.adapters.build_unified, src.topic_mapping, src.checks.labeling, src.checks.person_names, src.spikes, src.export, src.risk_view; print('импорты в порядке')"
+      - name: Без выгрузки сборка отказывает с понятным сообщением и кодом 2
+        run: |
+          set +e
+          .venv/bin/nazar-build-data > out.txt 2>&1
+          code=$?
+          set -e
+          cat out.txt
+          test "$code" -eq 2
+          grep -q "НЕ ХВАТАЕТ" out.txt
+
+  docker-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Сборка образа по Dockerfile
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: nazar-109:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  dashboard-smoke:
+    runs-on: ubuntu-24.04
+    needs: docker-build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Образ (из кэша сборки)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: nazar-109:ci
+          cache-from: type=gha
+      - name: Витрина в контейнере без данных
+        run: docker run -d --name nazar -p 8501:8501 nazar-109:ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Окружение для проверки страницы (choreographer из lock)
+        run: |
+          pip install uv==0.11.26
+          uv venv .venv --python 3.12
+          uv pip install --python .venv/bin/python --require-hashes -r requirements.lock
+      - name: health и текст страницы
+        env:
+          BROWSER_PATH: /usr/bin/google-chrome
+        run: .venv/bin/python tests/ci_dashboard_smoke.py http://localhost:8501
+      - name: Журнал контейнера
+        if: always()
+        run: docker logs nazar 2>&1 | tail -80
+
+  fake-export:
+    # Поддельная выгрузка (CLAUDE.md, 5p): три команды без настоящих данных и сверка с эталоном
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Установка из requirements.lock
+        run: |
+          pip install uv==0.11.26
+          uv venv .venv --python 3.12
+          uv pip install --python .venv/bin/python --require-hashes -r requirements.lock
+          uv pip install --python .venv/bin/python --no-deps -e .
+      - name: Генерация, три команды в режиме fake, эталон 5p, вариант с новой категорией
+        run: .venv/bin/python tests/test_fake_export.py

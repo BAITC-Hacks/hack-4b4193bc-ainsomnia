@@ -1,0 +1,37 @@
+# Витрина обращений 109. Инструкция — CLAUDE.md, раздел 0b, «Контейнер».
+#
+#   docker compose up -d --build                  # витрина: http://127.0.0.1:8501
+#   docker compose --profile data run --rm build-data   # сырые выгрузки -> data/
+#   docker compose --profile data run --rm train        # модель риска -> reports/, models/
+#
+# Данные в образ не попадают — только тома ниже. Порт открыт на 127.0.0.1:
+# входа и ролей в витрине нет (CLAUDE.md, 0b, пункт 8), наружу её не открывать.
+services:
+  dashboard:
+    build: .
+    image: nazar-109:latest
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - ./data:/app/data:ro
+      - ./reports:/app/reports:ro
+    restart: unless-stopped
+
+  # Сборка data/unified.parquet из сырых выгрузок — та же команда, что без контейнера
+  build-data:
+    image: nazar-109:latest
+    profiles: ["data"]
+    command: ["nazar-build-data"]
+    volumes:
+      - ./drive-download-20260907T161509Z-1-001:/app/drive-download-20260907T161509Z-1-001:ro
+      - ./data:/app/data
+
+  # Модель риска просрочки (только Караганда) -> reports/metrics.json, predictions.csv
+  train:
+    image: nazar-109:latest
+    profiles: ["data"]
+    command: ["python", "train.py"]
+    volumes:
+      - ./drive-download-20260907T161509Z-1-001:/app/drive-download-20260907T161509Z-1-001:ro
+      - ./reports:/app/reports
+      - ./models:/app/models

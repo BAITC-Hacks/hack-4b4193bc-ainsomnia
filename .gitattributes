@@ -1,0 +1,25 @@
+# Окончания строк — LF в репозитории и в рабочей копии на любой ОС, включая Windows.
+# Иначе сверки «байт в байт» (эталоны tests/, суммы поддельной выгрузки 5p,
+# requirements.lock с хешами) разойдутся у того, кто клонирует на Windows.
+* text=auto eol=lf
+
+*.py     text eol=lf
+*.md     text eol=lf
+*.json   text eol=lf
+*.jsonl  text eol=lf
+*.toml   text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.txt    text eol=lf
+*.lock   text eol=lf
+*.html   text eol=lf
+*.csv    text eol=lf
+*.sh     text eol=lf
+Dockerfile text eol=lf
+
+# Бинарные — без преобразований и без текстового diff.
+*.parquet binary
+*.xlsx    binary
+*.png     binary
+*.pdf     binary
+*.pkl     binary
