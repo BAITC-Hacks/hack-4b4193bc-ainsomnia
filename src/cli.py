@@ -56,7 +56,10 @@ BUILD_STEPS = (
     ("адаптеры схем: 12 файлов -> data/by_region/", "src.adapters.adapters"),
     ("сводная таблица -> data/unified.parquet", "src.adapters.build_unified"),
     ("темы и классы обращения", "src.topic_mapping"),
-    ("проверка покрытия тем против эталона", "tests.test_topic_coverage"),
+    # Свойства разметки, а не абсолютные числа: на новой выгрузке числа по темам
+    # меняются всегда. tests.test_topic_coverage — для правок src/topic_mapping.py.
+    ("проверка разметки: «прочее», сопоставление категорий, новые категории",
+     "src.checks.labeling"),
 )
 
 
