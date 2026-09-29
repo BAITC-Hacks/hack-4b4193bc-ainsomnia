@@ -10,14 +10,14 @@ SCENARIO_NOTE = ('−20% и +20% — сценарии изменения вхо�
 SCENARIOS = [('−20%', 'Сниженный поток'), ('Базовый', 'Ожидаемый поток'), ('+20%', 'Повышенный поток')]
 
 CSS = '''<style>
-.nazar-capacity-card{background:white;border:1px solid #d8e2ee;border-top:3px solid var(--accent);border-radius:8px;padding:20px;min-height:410px;color:#16324f}
+.nazar-capacity-card{background:white;border:1px solid #d8e2ee;border-radius:8px;padding:20px;min-height:410px;color:#16324f}
 .nazar-capacity-card .cap-title{font-size:22px;margin:0!important;padding:0!important;color:#16324f}
 .nazar-capacity-card .cap-sub{font-size:13px;color:#596b7c;margin:4px 0 16px}
 .nazar-capacity-card dl{margin:12px 0}.nazar-capacity-card dt{font-size:13px;color:#596b7c;margin-top:12px}
 .nazar-capacity-card dd{margin:4px 0 0;font-size:25px;font-weight:650;line-height:1.2}
 .nazar-capacity-card dd small{display:inline;font-size:12px;font-weight:400;margin-left:6px;color:#596b7c}
 .nazar-capacity-card .cap-balance{border-top:1px solid #e3e9ef;padding-top:12px;margin-top:12px}
-.nazar-capacity-note{border-left:3px solid #167d9a;background:#e9f3f7;color:#16324f;padding:10px 14px;font-size:13px;line-height:1.5;margin-bottom:8px}
+.nazar-capacity-note{border:1px solid #cfe2e5;background:#e9f3f7;color:#16324f;padding:10px 14px;border-radius:8px;font-size:13px;line-height:1.5;margin-bottom:8px}
 @media(max-width:1400px){.nazar-capacity-card{padding:16px}.nazar-capacity-card dd{font-size:23px}}
 .st-key-capacity_parameters [data-testid="stVerticalBlock"]{gap:8px}
 </style>'''
