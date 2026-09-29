@@ -2,7 +2,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 from src.ui.components import data_health_card, section_header, info_callout
-from src.ui.theme import chart, TEAL, GREY
+from src.ui.theme import chart, TEAL, GREY, AMBER
 
 
 def health_overview(st, health, compact=False):
@@ -20,9 +20,10 @@ def health_overview(st, health, compact=False):
     if compact:
         warning=sum(h['status']!='OK' for h in health['regions'].values())
         info_callout(st,f"Регионов с ограничениями: {warning} из {len(health['regions'])}. "
-                     'Проверьте даты и полноту перед решением; подробности — во вкладке «Контроль».')
-        with st.expander('Посмотреть регионы и даты'):
-            cards()
+                     'Проверьте даты и полноту перед решением.')
+        cards()
+        st.button('Подробнее о качестве данных', key='open_control',
+                  on_click=lambda: st.session_state.update(page='control'))
     else:
         cards()
 
@@ -37,7 +38,10 @@ def freshness_chart(health):
             if cursor < stop:
                 fig.add_scatter(x=[cursor,stop],y=[region,region],mode='lines',line=dict(color=TEAL,width=12),showlegend=False,
                                 hovertemplate='%{y}<br>%{x|%d.%m.%Y}<extra></extra>')
-            cursor=pd.Timestamp(gap['last_date'])+pd.Timedelta(days=1)
+            gap_end=pd.Timestamp(gap['last_date'])+pd.Timedelta(days=1)
+            fig.add_scatter(x=[stop,gap_end],y=[region,region],mode='lines',line=dict(color=AMBER,width=5,dash='dot'),showlegend=False,
+                            hovertemplate='%{y}<br>Разрыв данных: %{x|%d.%m.%Y}<extra></extra>')
+            cursor=gap_end
         if cursor<end:
             fig.add_scatter(x=[cursor,end],y=[region,region],mode='lines',line=dict(color=TEAL,width=12),showlegend=False,
                             hovertemplate='%{y}<br>%{x|%d.%m.%Y}<extra></extra>')

@@ -24,7 +24,8 @@ import plotly.graph_objects as go
 
 from src import paths
 from src.ui.theme import apply_theme, chart
-from src.ui.components import masthead, fake_banner, executive_summary, empty_state, info_callout, number
+from src.ui.components import (fake_banner, executive_summary, empty_state, info_callout,
+                               number, page_header, sidebar_nav)
 from src.export import PdfUnavailable, build_excel, build_pdf
 from src.risk_view import risk_section
 from src.event_service import load_events, mark_new, region_last_day
@@ -565,11 +566,75 @@ def data_revision():
     return (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
 
+def analytics_filter_bar(st, df):
+    """Shared content filters for Analytics and Reports; no analytical calculation."""
+    problem = df[df.appeal_class == "problem"]
+    regions = sorted(problem["region"].unique())
+    topics = sorted(problem["topic"].unique())
+    dmin, dmax = df.created_at.min().date(), df.created_at.max().date()
+
+    def reset():
+        for key in ('an_region_choice', 'an_period', 'an_topic_choice'):
+            st.session_state.pop(key, None)
+
+    with st.container(key='filter_bar'):
+        st.markdown('**Фильтры**')
+        fields = st.columns([2, 2, 2, .8], vertical_alignment='bottom')
+        region_choice = fields[0].selectbox('Регион', ['Все регионы', *regions], key='an_region_choice')
+        sel_period = fields[1].date_input('Период', (dmin, dmax), min_value=dmin,
+                                          max_value=dmax, key='an_period')
+        topic_choice = fields[2].selectbox('Тема', ['Все темы', *topics], key='an_topic_choice')
+        fields[3].button('Сбросить', on_click=reset, width='stretch')
+    sel_reg = regions if region_choice == 'Все регионы' else [region_choice]
+    sel_topic = topics if topic_choice == 'Все темы' else [topic_choice]
+    period_text = (' — '.join(f'{d:%d.%m.%Y}' for d in sel_period)
+                   if isinstance(sel_period, (tuple, list)) else str(sel_period))
+    region_text = sel_reg[0].replace(' область', '') if len(sel_reg) == 1 else f'{len(sel_reg)} регионов'
+    topic_text = sel_topic[0] if len(sel_topic) == 1 else ('все темы' if len(sel_topic) == len(topics) else f'{len(sel_topic)} тем')
+    st.caption(f'{region_text} · {period_text} · {topic_text}')
+
+    lo, hi = pd.Timestamp(dmin), pd.Timestamp(dmax) + pd.Timedelta(days=1)
+    flt = problem[problem.region.isin(sel_reg) & problem.topic.isin(sel_topic)]
+    if isinstance(sel_period, (tuple, list)) and len(sel_period) == 2:
+        lo, hi = pd.Timestamp(sel_period[0]), pd.Timestamp(sel_period[1]) + pd.Timedelta(days=1)
+        flt = flt[(flt.created_at >= lo) & (flt.created_at < hi)]
+    return dict(problem=problem, regions=regions, topics=topics, selected_regions=sel_reg,
+                selected_topics=sel_topic, period=sel_period, lo=lo, hi=hi, frame=flt)
+
+
+def current_events_for_export(st):
+    """Rebuild the current event view from widget state without rendering the feed."""
+    _, _, ev = st.cache_data(load_events)(revision=data_revision())
+    if ev.empty:
+        return feed_view(ev), []
+    regions = sorted(ev['регион'].unique())
+    topics = sorted(ev['тема'].unique())
+    types = [TYPE_RU[k] for k in ('anomaly', 'seasonal', 'без типа')]
+    selected_regions = st.session_state.get('ev_reg', regions)
+    selected_topics = st.session_state.get('ev_top', topics)
+    selected_types = st.session_state.get('ev_type', types)
+    ratio = st.session_state.get('ev_ratio', 1.0)
+    period = st.session_state.get('ev_period', (ev['дата'].min().date(), ev['дата'].max().date()))
+    order_label = st.session_state.get('ev_order', 'по числу жалоб сверх обычного')
+    orders = {'по числу жалоб сверх обычного': 'прирост',
+              'по тому, во сколько раз больше обычного': 'кратность'}
+    filtered = ev[ev['регион'].isin(selected_regions) & ev['тема'].isin(selected_topics)
+                  & ev['тип'].isin(selected_types) & (ev['кратность'] >= ratio)]
+    if isinstance(period, (tuple, list)) and len(period) == 2:
+        filtered = filtered[(filtered['дата'] >= pd.Timestamp(period[0]))
+                            & (filtered['дата'] <= pd.Timestamp(period[1]))]
+    filtered = filtered.sort_values(orders.get(order_label, 'прирост'), ascending=False)
+    descr = [f'всплески: регионов {len(selected_regions)} из {len(regions)}, тем {len(selected_topics)} из {len(topics)}',
+             f'характер всплеска: {", ".join(selected_types) if selected_types else "—"}',
+             f'больше обычного не менее чем в {ratio:g} раза, порядок — {order_label}']
+    return feed_view(filtered), descr
+
+
 def main():
     import streamlit as st
 
-    st.set_page_config(page_title="Обращения в 109 — обзор для руководителя",
-                       layout="wide", initial_sidebar_state="collapsed")
+    st.set_page_config(page_title="NAZAR-109 — аналитика обращений 109",
+                       layout="wide", initial_sidebar_state="expanded")
     presentation = st.session_state.get("presentation", False)
     apply_theme(st, presentation)
     if paths.RUNTIME:
@@ -618,7 +683,8 @@ def main():
         st.stop()
 
     from src.operations import snapshot, revision
-    from src.operations_view import action_section, planning_section, closure_section, brief_section
+    from src.operations_view import (action_section, planning_section, closure_section,
+                                     brief_section, spikes_preview, risk_preview)
     current_revision = revision()
     if st.session_state.get('brief_revision') != current_revision:
         st.session_state.pop('brief_html', None)
@@ -628,31 +694,35 @@ def main():
     if not current["available"]:
         st.error("Операционная аналитика недоступна; проверьте согласованность сборки.")
         st.stop()
-    masthead(st, df, current["source"])
-    _, controls = st.columns([4, 1])
-    controls.toggle("Режим презентации", key="presentation", help="Меняет только оформление, не данные и фильтры.")
-    with st.sidebar:
-        st.subheader("О данных")
-        st.write("Источник: " + current['source'].upper())
-        st.caption("Очередь внимания охватывает все регионы. Фильтры событий и аналитики независимы.")
-        st.caption("Свежесть определяется концом каждой выгрузки. Обновление на сегодня не предполагается.")
-    operational, planning, quality, analytics, reports = st.tabs([
-        "Оперативно", "Планирование", "Контроль", "Аналитика", "Отчёты"])
-    with operational:
+    page = sidebar_nav(st, df, current['source'])
+    presentation = st.session_state.get('presentation', False)
+    titles = {
+        'operations': ('Оперативная картина', 'Что требует внимания прямо сейчас'),
+        'planning': ('Планирование нагрузки', 'Прогноз, сценарий мощности и повторное давление'),
+        'control': ('Контроль данных', 'Можно ли доверять данным и проверить результат?'),
+        'analytics': ('Аналитика обращений', 'Темы, динамика, структура потока и все события'),
+        'reports': ('Отчёты и выгрузки', 'Соберите материалы для оперативной работы'),
+    }
+    page_header(st, *titles[page], df, current['source'], presentation)
+
+    if page == 'operations':
         executive_summary(st, current)
         action_section(st, current)
         from src.ui.health import health_overview
         health_overview(st, current['health'], compact=True)
-        events, ev_descr, info = events_section(st, df)
-        risk_section(st)
+        spikes_preview(st, current)
+        risk_preview(st, current)
 
-    with planning:
+    elif page == 'planning':
         planning_section(st, current)
-    with quality:
-        closure_section(st, current["closure"])
+    elif page == 'control':
         health_section(st)
+        closure_section(st, current["closure"])
 
-    with analytics:
+    elif page == 'analytics':
+        filters = analytics_filter_bar(st, df)
+        events, ev_descr, _ = events_section(st, df)
+        risk_section(st)
         # ---------------- 4. структура потока
         st.subheader("Из чего состоит поток обращений по регионам")
         st.plotly_chart(chart(fig_structure(df)), width="stretch")
@@ -665,40 +735,17 @@ def main():
 
         # ---------------- 5. темы; фильтры здесь же — они действуют на темы,
         # динамику и выгрузку
-        problem = df[df.appeal_class == "problem"]
+        problem = filters['problem']
         title = st.empty()                 # заголовок зависит от выбранного региона
-        st.markdown("**Фильтры** — действуют на темы, динамику по месяцам и выгрузку "
-                    "отчётов.")
-        regions = sorted(problem["region"].unique())
-        topics = sorted(problem["topic"].unique())
-        with st.expander("Фильтры аналитики и отчётов"):
-            def reset_analytics():
-                for key in ('an_region', 'an_period', 'an_topic'):
-                    st.session_state.pop(key, None)
-            st.button('Сбросить фильтры аналитики', on_click=reset_analytics)
-            f = st.columns([2, 2, 2])
-            sel_reg = f[0].multiselect("Регион", regions, default=regions, key="an_region")
-            # Границы берутся по ВСЕЙ таблице, а не по problem: этот же период уходит в
-            # выгрузку, где сводка по регионам считается по всем классам. При границе по
-            # problem три справочных обращения Павлодара за 2020-02-09 выпадали из сводки,
-            # и она расходилась с эталоном на 3 строки.
-            dmin, dmax = df.created_at.min().date(), df.created_at.max().date()
-            sel_period = f[1].date_input("Период", (dmin, dmax),
-                                         min_value=dmin, max_value=dmax, key="an_period")
-            sel_topic = f[2].multiselect("Тема", topics, default=topics, key="an_topic")
-        st.caption(f"Применено: регионов {len(sel_reg)} · тем {len(sel_topic)} · "
-                   + (" — ".join(f"{d:%d.%m.%Y}" for d in sel_period) if isinstance(sel_period,(tuple,list)) else str(sel_period)))
+        regions, topics = filters['regions'], filters['topics']
+        sel_reg, sel_topic = filters['selected_regions'], filters['selected_topics']
+        sel_period = filters['period']
         title.subheader("О чём жалуются" + (f" — {sel_reg[0]}" if len(sel_reg) == 1 else ""))
 
         # Пока в календаре выбрана только начальная дата, date_input отдаёт одну
         # дату. Раньше a и b тогда не определялись, и выгрузка падала с
         # UnboundLocalError (найдено 2026-09-25) — до выбора второй даты берём весь период.
-        a, b = pd.Timestamp(dmin), pd.Timestamp(dmax) + pd.Timedelta(days=1)
-        flt = problem[problem.region.isin(sel_reg) & problem.topic.isin(sel_topic)]
-        if isinstance(sel_period, (tuple, list)) and len(sel_period) == 2:
-            a, b = (pd.Timestamp(sel_period[0]),
-                    pd.Timestamp(sel_period[1]) + pd.Timedelta(days=1))
-            flt = flt[(flt.created_at >= a) & (flt.created_at < b)]
+        a, b, flt = filters['lo'], filters['hi'], filters['frame']
 
         st.caption(f"Жалоб на городские проблемы под фильтром: {len(flt):,}. "
                    .replace(",", " ")
@@ -747,7 +794,12 @@ def main():
         summary_section(st, df)
         st.divider()
 
-    with reports:
+    elif page == 'reports':
+        filters = analytics_filter_bar(st, df)
+        flt = filters['frame']
+        sel_reg, sel_topic = filters['selected_regions'], filters['selected_topics']
+        topics, a, b = filters['topics'], filters['lo'], filters['hi']
+        events, ev_descr = current_events_for_export(st)
         st.caption(f"Источник: {current['source'].upper()} · Последняя дата данных: {df.created_at.max():%d.%m.%Y}. У регионов разные окна.")
         brief_section(st, current)
         # ---------------- 8. выгрузка
