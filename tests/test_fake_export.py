@@ -153,8 +153,8 @@ EXPECT = {
     "ПДн в сырье": {"телефон": 4, "12 цифр": 4, "адрес": 7, "отчество": 52, "названий-людей": 2, "строк с ними": 55},
     "ПДн в сводной": {"телефон": 0, "12 цифр": 0, "адрес": 0, "отчество": 0, "названий-людей": 2, "строк с ними": 55},
     "витрина: исключений": 0,
-    "витрина: блоки": ["Что требует внимания", "Требует внимания", "Качество и свежесть данных", "Всплески жалоб", "Очередь проверки риска — Карагандинская область", "Прогноз нагрузки", "Сценарий нагрузки", "Повторное давление по теме", "Можно ли проверить факт решения?", "Качество и свежесть данных", "Периоды наблюдений", "Из чего состоит поток обращений по регионам", "О чём жалуются", "Жалобы по месяцам", "Общие цифры", "Оперативная сводка для руководителя", "Выгрузка отчётов", "О данных"],
-    "P2: вкладки": ["Оперативно", "Планирование", "Контроль", "Аналитика", "Отчёты"],
+    "витрина: блоки": ["Требует внимания", "Качество и свежесть данных", "Новые всплески", "Очередь проверки риска", "Прогноз нагрузки", "Сценарий нагрузки", "Повторное давление по теме", "Качество и свежесть данных", "Периоды наблюдений", "Можно ли проверить факт решения?", "Всплески жалоб", "Очередь проверки риска — Карагандинская область", "Из чего состоит поток обращений по регионам", "О чём жалуются", "Жалобы по месяцам", "Общие цифры", "Оперативная сводка для руководителя", "Выгрузка отчётов"],
+    "P2: навигация": ["Оперативно", "Планирование", "Контроль", "Аналитика", "Отчёты"],
     "P2: fake source / forecasts / closure / brief label": ["fake", 0, False, True],
     "витрина: плашка поддельных данных": True,
     "витрина: требуют внимания": "1",
@@ -212,8 +212,22 @@ out["ПДн в сводной"] = scan_frame(u.drop(columns=["source_file"]), "c
 from streamlit.testing.v1 import AppTest
 at = AppTest.from_file(str(paths.ROOT / "src" / "dashboard.py"), default_timeout=600).run()
 out["витрина: исключений"] = len(at.exception)
-out["витрина: блоки"] = [s.value for s in at.subheader]
-out["P2: вкладки"] = [t.label for t in at.tabs]
+out["P2: навигация"] = [at.button(key=f"nav_{key}").label for key in
+    ("operations", "planning", "control", "analytics", "reports")]
+blocks = [s.value for s in at.subheader]
+card = [m.value for m in at.markdown if "Новых всплесков" in m.value]
+out["витрина: требуют внимания"] = re.findall(r'class="nazar-metric-value">(\d+)</div>', card[0])[0] if card else None
+for page in ("planning", "control", "analytics"):
+    at.button(key=f"nav_{page}").click().run()
+    out["витрина: исключений"] += len(at.exception)
+    blocks.extend(s.value for s in at.subheader)
+risk = [x.value for x in at.dataframe if "Служба" in x.value.columns]
+out["витрина: блок риска маскирует ИП"] = bool(risk) and any(s.startswith("ИП-") for s in risk[0]["Служба"]) \
+    and not any("Тестова" in s for s in risk[0]["Служба"])
+at.button(key="nav_reports").click().run()
+out["витрина: исключений"] += len(at.exception)
+blocks.extend(s.value for s in at.subheader)
+out["витрина: блоки"] = blocks
 from src.operations import snapshot as operational_snapshot
 from src.brief import render_html
 state = operational_snapshot()
@@ -222,11 +236,6 @@ out["P2: fake source / forecasts / closure / brief label"] = [state["source"], l
     state["closure"]["available"], "ПОДДЕЛЬНЫЕ ДАННЫЕ" in render_html(state,"test")]
 
 out["витрина: плашка поддельных данных"] = any("ПОДДЕЛЬНЫЕ ДАННЫЕ" in e.value for e in at.markdown)
-card = [m.value for m in at.markdown if "Новых всплесков" in m.value]
-out["витрина: требуют внимания"] = re.findall(r'class="nazar-metric-value">(\d+)</div>', card[0])[0] if card else None
-risk = [x.value for x in at.dataframe if "Служба" in x.value.columns]
-out["витрина: блок риска маскирует ИП"] = bool(risk) and any(s.startswith("ИП-") for s in risk[0]["Служба"]) \
-    and not any("Тестова" in s for s in risk[0]["Служба"])
 print(json.dumps(out, ensure_ascii=False, default=str))
 '''
 

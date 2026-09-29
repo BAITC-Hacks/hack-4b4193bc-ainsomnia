@@ -40,6 +40,7 @@ def exercise(case):
     if case == "no_data":
         assert "Нет данных для витрины" in text("error")
     elif case == "no_predictions":
+        at.button(key='nav_analytics').click().run()
         assert "Нет готового" in text("warning") + text("info")
         assert any("Общие цифры" in s.value for s in at.subheader)
     elif case == "corrupt":
@@ -50,6 +51,7 @@ def exercise(case):
         assert "BLOCKED" in text("error")
         assert [s.value for s in at.subheader] == ["Качество и свежесть данных"]
     elif case in ("no_font", "no_chrome"):
+        at.button(key='nav_reports').click().run()
         next(b for b in at.button if b.label == "Собрать PDF").click().run()
         assert not at.exception
         assert "PDF" in text("warning") + text("error")
@@ -59,30 +61,42 @@ def exercise(case):
         daily, _, all_events = load_events()
         last_day = region_last_day(daily)
         expected=snapshot()['new_spikes']
-        def cards_match(filtered):
+        def operations_card_matches():
             assert not at.exception
+            if at.session_state['page'] != 'operations':
+                at.button(key='nav_operations').click().run()
             card = next(m.value for m in at.markdown if 'nazar-metric-label">Новых всплесков' in m.value)
             number = int(re.findall(r'nazar-metric-value">([^<]+)', card)[0].replace(' ', ''))
-            # Executive queue is global; filters only change the event feed.
             assert number == expected
+
+        def event_feed_matches(filtered):
+            assert not at.exception
             section = next(m.value for m in at.markdown if m.value.startswith("#### Требует внимания"))
             assert int(re.findall(r"\d+", section)[0]) == filtered
-        cards_match(expected)
-        assert [t.label for t in at.tabs] == ['Оперативно','Планирование','Контроль','Аналитика','Отчёты']
+
+        operations_card_matches()
+        assert not at.tabs
+        assert [at.button(key=f'nav_{key}').label for key in
+                ('operations','planning','control','analytics','reports')] == [
+                    'Оперативно','Планирование','Контроль','Аналитика','Отчёты']
+        at.button(key='nav_analytics').click().run()
+        event_feed_matches(expected)
         at.radio(key="ev_order").set_value("по тому, во сколько раз больше обычного").run()
-        cards_match(expected)
+        event_feed_matches(expected)
         at.multiselect(key="ev_reg").set_value(["Костанайская область"]).run()
         own = all_events[all_events["регион"] == "Костанайская область"]
-        cards_match(int(mark_new(own, last_day, 7)["новое"].sum()))
+        event_feed_matches(int(mark_new(own, last_day, 7)["новое"].sum()))
         at.number_input(key="ev_new").set_value(1).run()
-        cards_match(int(mark_new(own, last_day, 1)["новое"].sum()))
+        event_feed_matches(int(mark_new(own, last_day, 1)["новое"].sum()))
         at.multiselect(key="ev_reg").set_value([]).run()
-        cards_match(0)
+        event_feed_matches(0)
         at.toggle(key='presentation').set_value(True).run()
-        cards_match(0)
+        event_feed_matches(0)
         next(b for b in at.button if b.label=='Сбросить фильтры событий').click().run()
-        cards_match(expected)
+        event_feed_matches(expected)
+        operations_card_matches()
         assert any('ТЕСТОВЫЕ ДАННЫЕ' in m.value for m in at.markdown)
+        at.button(key='nav_reports').click().run()
         next(b for b in at.button if b.label=='Сформировать оперативную сводку').click().run()
         assert not at.exception and 'ПОДДЕЛЬНЫЕ ДАННЫЕ' in at.session_state['brief_html']
         saved_brief = at.session_state['brief_html']
@@ -91,14 +105,20 @@ def exercise(case):
         paths.UNIFIED.touch()  # A new file revision must retire the previous downloadable brief.
         at.run()
         assert not at.exception and 'brief_html' not in at.session_state
+        at.button(key='nav_analytics').click().run()
         general_period = [v for v in at.date_input if not str(v.key).startswith("ev_")][0]
         day = general_period.value[0]
         general_period.set_value((day,)).run()
         assert not at.exception
         general_period.set_value((day, day)).run()
         assert not at.exception
-        general_regions = [v for v in at.multiselect if v.label == "Регион" and v.key != "ev_reg"][0]
-        general_regions.set_value([]).run()
+        frame = __import__('pandas').read_parquet(paths.UNIFIED)
+        problem = frame[frame.appeal_class == 'problem']
+        region, topic = next((r, t) for r in sorted(problem.region.unique())
+                             for t in sorted(problem.topic.unique())
+                             if not ((problem.region == r) & (problem.topic == t)).any())
+        at.selectbox(key='an_region_choice').set_value(region).run()
+        at.selectbox(key='an_topic_choice').set_value(topic).run()
         assert not at.exception
         assert "не попало ни одного обращения" in text("warning")
         assert any("Общие цифры" in s.value for s in at.subheader)
