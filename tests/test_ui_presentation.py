@@ -33,9 +33,12 @@ class PresentationTest(unittest.TestCase):
                     'gaps_ge7':[{'first_date':'2020-01-10','last_date':'2020-01-20','days':11}]}}}
         original=copy.deepcopy(health);fig=freshness_chart(health)
         self.assertEqual(health,original)
-        self.assertEqual(len(fig.data),2)
+        self.assertEqual(len(fig.data),3)
         self.assertEqual(str(fig.data[0].x[-1])[:10],'2020-01-10')
-        self.assertEqual(str(fig.data[1].x[0])[:10],'2020-01-21')
+        self.assertEqual(str(fig.data[1].x[0])[:10],'2020-01-10')
+        self.assertEqual(str(fig.data[1].x[-1])[:10],'2020-01-21')
+        self.assertEqual(fig.data[1].line.color,'#9A6500')
+        self.assertEqual(str(fig.data[2].x[0])[:10],'2020-01-21')
 
 
 if __name__=='__main__':unittest.main()

@@ -6,7 +6,7 @@ from src.closure import STATUS_RU
 from src.brief import render_html, render_pdf
 from src.export import PdfUnavailable
 from src.ui.components import (action_card, section_header, info_callout, empty_state,
-                               metric_card, number, esc, status_badge, day)
+                               metric_card, number, esc, status_badge, day, spike_card)
 from src.ui.theme import GREEN, AMBER, GREY
 
 
@@ -25,14 +25,53 @@ def action_section(st, snapshot):
             elif a['type'] == 'NEW_SPIKE':
                 st.markdown('[Открыть ленту и графики событий](#vspleski)')
     actions=snapshot['actions']
-    for i,a in enumerate(actions[:3]):
+    visible = 3 if st.session_state.get('presentation') else 5
+    for i,a in enumerate(actions[:visible]):
         item(a,i)
-    if len(actions)>3:
-        with st.expander(f"Показать остальные проверки ({len(actions)-3})"):
-            for i,a in enumerate(actions[3:],start=3):
+    if len(actions)>visible and not st.session_state.get('presentation'):
+        with st.expander(f"Показать все {len(actions)}"):
+            for i,a in enumerate(actions[visible:],start=visible):
                 item(a,i)
     if not actions:
         empty_state(st,'Правила очереди не нашли действий в этом окне.')
+
+
+def spikes_preview(st, snapshot):
+    section_header(st, 'Новые всплески',
+                   'Последние сигналы из очереди действий. Полная лента и графики находятся в разделе «Аналитика».')
+    items = [item for item in snapshot['actions'] if item['type'] == 'NEW_SPIKE']
+    if not items:
+        empty_state(st, 'Новых всплесков в последних семи днях данных нет.')
+        return
+    shown = items[:3] if st.session_state.get('presentation') else items[:5]
+    for start in range(0, len(shown), 3):
+        columns = st.columns(min(3, len(shown) - start))
+        for column, item in zip(columns, shown[start:start + 3]):
+            spike_card(column, item)
+    st.button('Подробнее о всплесках', key='open_analytics',
+              on_click=lambda: st.session_state.update(page='analytics'))
+
+
+def risk_preview(st, snapshot):
+    section_header(st, 'Очередь проверки риска', 'Карагандинская область · исторический тест')
+    risk = snapshot['risk']
+    if not risk.get('available'):
+        empty_state(st, 'Модель риска для текущего источника недоступна.')
+        return
+    from src.risk_view import headline, load_risk, top_share, WORK_SHARE
+    try:
+        metrics = headline()
+        selected = top_share(load_risk(), WORK_SHARE)
+    except (OSError, ValueError, KeyError):
+        empty_state(st, 'Готовые результаты риска несовместимы с текущей сборкой.')
+        return
+    cols = st.columns(3)
+    metric_card(cols[0], 'В очереди', number(selected['n']), 'обращений', AMBER)
+    metric_card(cols[1], 'Целевых случаев', f"{selected['precision']:.0%}", 'в выбранной очереди', AMBER)
+    metric_card(cols[2], 'Базовая доля', f"{metrics['base']:.0%}", 'во всём тестовом периоде', GREY)
+    info_callout(st, 'Модель используется для приоритизации, а не как точная вероятность.')
+    st.button('Открыть подробную очередь риска', key='open_risk',
+              on_click=lambda: st.session_state.update(page='analytics'))
 
 
 def planning_section(st, snapshot):

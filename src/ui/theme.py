@@ -13,9 +13,11 @@ PALETTE = [NAVY, TEAL, '#5786AD', '#769C9A', '#827C9D', '#9A805D', GREY]
 def apply_theme(st, presentation=False):
     css = Path(__file__).with_name('theme.css').read_text()
     if presentation:
-        css += '''[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {display:none}
+        css += '''[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {display:none!important}
+        [data-testid="stMainBlockContainer"] {max-width:1860px;padding-left:44px;padding-right:44px}
+        .nazar-fake {left:0}
         .nazar-metric-value {font-size:44px!important}
-        .nazar-help, [data-testid="stExpander"]:has(.nazar-help-marker) {display:none}'''
+        .nazar-help, [data-testid="stExpander"]:has(.nazar-help-marker), .nazar-technical {display:none}'''
     st.markdown('<style>'+css+'</style>', unsafe_allow_html=True)
 
 
